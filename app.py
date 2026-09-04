@@ -1,535 +1,1550 @@
 import io
 import os
-import streamlit as st
+import sqlite3
+import smtplib
 from datetime import date
-from dotenv import load_dotenv
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import (
-    SimpleDocTemplate,
-    Paragraph,
-    Spacer,
-    Table,
-    TableStyle
-)
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+
 from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from reportlab.platypus import (
+SimpleDocTemplate,
+Paragraph,
+Spacer,
+Table,
+TableStyle,
+)
 
-# =========================================================
-# LOAD ENVIRONMENT VARIABLES
-# =========================================================
-load_dotenv()
+# OpenAI is optional until the AI assistant is used.
 
-api_key = os.getenv("OPENAI_API_KEY")
-gemini_api_key = os.getenv("GEMINI_API_KEY")
+try:
+from openai import OpenAI
+except ImportError:
+OpenAI = None
 
-# =========================================================
-# PAGE SETTINGS
-# =========================================================
+# ============================================================
+
+# PAGE CONFIGURATION
+
+# ============================================================
+
 st.set_page_config(
-    page_title="AI Smart Invoicer",
-    page_icon="📄",
-    layout="wide"
+page_title="AI Smart Invoicer & Debt Collector",
+page_icon="🧾",
+layout="wide",
 )
 
-# =========================================================
-# HEADER
-# =========================================================
-st.title("📄 AI Smart Invoicer & Debt Collector")
-st.write(
-    "Generate professional invoices and draft automated AI "
-    "follow-ups for overdue clients."
+# ============================================================
+
+# DATABASE
+
+# ============================================================
+
+DB_FILE = "invoices.db"
+
+def init_db():
+conn = sqlite3.connect(DB_FILE)
+cursor = conn.cursor()
+
+```
+cursor.execute(
+    """
+    CREATE TABLE IF NOT EXISTS invoices (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        invoice_number TEXT,
+        customer_name TEXT,
+        customer_email TEXT,
+        invoice_date TEXT,
+        total_amount REAL,
+        amount_paid REAL,
+        balance REAL,
+        status TEXT
+    )
+    """
 )
 
-# =========================================================
-# API KEY STATUS
-# =========================================================
-if api_key:
-    st.success("API key loaded successfully")
-else:
-    st.error("API key not found. Please check your .env file")
+conn.commit()
+conn.close()
+```
 
-# =========================================================
-# SIDEBAR - BUSINESS INFORMATION
-# =========================================================
-st.sidebar.header("🏢 Your Business Info")
+def save_invoice_to_db(
+invoice_number,
+customer_name,
+customer_email,
+invoice_date,
+total_amount,
+amount_paid,
+balance,
+status,
+):
+conn = sqlite3.connect(DB_FILE)
+cursor = conn.cursor()
+
+```
+cursor.execute(
+    """
+    INSERT INTO invoices (
+        invoice_number,
+        customer_name,
+        customer_email,
+        invoice_date,
+        total_amount,
+        amount_paid,
+        balance,
+        status
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """,
+    (
+        invoice_number,
+        customer_name,
+        customer_email,
+        invoice_date,
+        total_amount,
+        amount_paid,
+        balance,
+        status,
+    ),
+)
+
+conn.commit()
+conn.close()
+```
+
+def get_invoice_history():
+conn = sqlite3.connect(DB_FILE)
+
+```
+df = pd.read_sql_query(
+    "SELECT * FROM invoices ORDER BY id DESC",
+    conn,
+)
+
+conn.close()
+return df
+```
+
+init_db()
+
+# ============================================================
+
+# HELPER FUNCTIONS
+
+# ============================================================
+
+def safe_text(value):
+if value is None:
+return ""
+
+```
+return str(value)
+```
+
+def format_currency(value):
+try:
+return f"₦{float(value):,.2f}"
+except (ValueError, TypeError):
+return "₦0.00"
+
+def clean_items(items):
+cleaned = []
+
+```
+for item in items:
+    description = safe_text(item.get("description", "")).strip()
+
+    if not description:
+        continue
+
+    try:
+        quantity = float(item.get("quantity", 1))
+    except (ValueError, TypeError):
+        quantity = 1
+
+    try:
+        price = float(item.get("price", 0))
+    except (ValueError, TypeError):
+        price = 0
+
+    if quantity < 0:
+        quantity = 0
+
+    if price < 0:
+        price = 0
+
+    cleaned.append(
+        {
+            "description": description,
+            "quantity": quantity,
+            "price": price,
+            "amount": quantity * price,
+        }
+    )
+
+return cleaned
+```
+
+def calculate_subtotal(items):
+total = 0
+
+```
+for item in items:
+    try:
+        total += float(item.get("quantity", 0)) * float(
+            item.get("price", 0)
+        )
+    except (ValueError, TypeError):
+        pass
+
+return total
+```
+
+# ============================================================
+
+# OPENAI API KEY
+
+# ============================================================
+
+def get_openai_api_key():
+try:
+if "OPENAI_API_KEY" in st.secrets:
+return st.secrets["OPENAI_API_KEY"]
+
+```
+    if "OPENAI_KEY" in st.secrets:
+        return st.secrets["OPENAI_KEY"]
+except Exception:
+    pass
+
+return os.getenv("OPENAI_API_KEY")
+```
+
+# ============================================================
+
+# PDF INVOICE GENERATOR
+
+# ============================================================
+
+def generate_pdf_invoice(
+business_name,
+business_address,
+business_phone,
+business_email,
+customer_name,
+customer_email,
+customer_phone,
+customer_address,
+invoice_number,
+invoice_date,
+due_date,
+items,
+tax_rate,
+amount_paid,
+notes,
+payment_url="",
+logo_bytes=None,
+):
+buffer = io.BytesIO()
+
+```
+doc = SimpleDocTemplate(
+    buffer,
+    pagesize=letter,
+    rightMargin=36,
+    leftMargin=36,
+    topMargin=36,
+    bottomMargin=36,
+)
+
+styles = getSampleStyleSheet()
+
+title_style = ParagraphStyle(
+    "InvoiceTitle",
+    parent=styles["Heading1"],
+    alignment=TA_CENTER,
+    fontSize=22,
+    leading=26,
+    spaceAfter=12,
+)
+
+heading_style = ParagraphStyle(
+    "InvoiceHeading",
+    parent=styles["Heading2"],
+    fontSize=12,
+    leading=15,
+    spaceAfter=6,
+)
+
+normal_style = ParagraphStyle(
+    "InvoiceNormal",
+    parent=styles["Normal"],
+    fontSize=9,
+    leading=12,
+)
+
+story = []
+
+# Business information
+business_lines = []
+
+if business_name:
+    business_lines.append(
+        Paragraph(
+            f"<b>{safe_text(business_name)}</b>",
+            styles["Heading2"],
+        )
+    )
+
+if business_address:
+    business_lines.append(
+        Paragraph(
+            safe_text(business_address),
+            normal_style,
+        )
+    )
+
+if business_phone:
+    business_lines.append(
+        Paragraph(
+            f"Phone: {safe_text(business_phone)}",
+            normal_style,
+        )
+    )
+
+if business_email:
+    business_lines.append(
+        Paragraph(
+            f"Email: {safe_text(business_email)}",
+            normal_style,
+        )
+    )
+
+if business_lines:
+    for line in business_lines:
+        story.append(line)
+
+story.append(Spacer(1, 12))
+
+story.append(
+    Paragraph(
+        "INVOICE",
+        title_style,
+    )
+)
+
+# Invoice details
+invoice_details = [
+    [
+        Paragraph("<b>Invoice Number</b>", normal_style),
+        Paragraph(safe_text(invoice_number), normal_style),
+    ],
+    [
+        Paragraph("<b>Invoice Date</b>", normal_style),
+        Paragraph(safe_text(invoice_date), normal_style),
+    ],
+    [
+        Paragraph("<b>Due Date</b>", normal_style),
+        Paragraph(safe_text(due_date), normal_style),
+    ],
+]
+
+details_table = Table(
+    invoice_details,
+    colWidths=[120, 350],
+)
+
+details_table.setStyle(
+    TableStyle(
+        [
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("BACKGROUND", (0, 0), (0, -1), colors.lightgrey),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]
+    )
+)
+
+story.append(details_table)
+story.append(Spacer(1, 16))
+
+# Customer
+story.append(
+    Paragraph(
+        "BILL TO",
+        heading_style,
+    )
+)
+
+customer_lines = []
+
+if customer_name:
+    customer_lines.append(
+        Paragraph(
+            f"<b>{safe_text(customer_name)}</b>",
+            normal_style,
+        )
+    )
+
+if customer_email:
+    customer_lines.append(
+        Paragraph(
+            f"Email: {safe_text(customer_email)}",
+            normal_style,
+        )
+    )
+
+if customer_phone:
+    customer_lines.append(
+        Paragraph(
+            f"Phone: {safe_text(customer_phone)}",
+            normal_style,
+        )
+    )
+
+if customer_address:
+    customer_lines.append(
+        Paragraph(
+            safe_text(customer_address),
+            normal_style,
+        )
+    )
+
+for line in customer_lines:
+    story.append(line)
+
+story.append(Spacer(1, 16))
+
+# Items
+table_data = [
+    [
+        Paragraph("<b>Description</b>", normal_style),
+        Paragraph("<b>Qty</b>", normal_style),
+        Paragraph("<b>Unit Price</b>", normal_style),
+        Paragraph("<b>Amount</b>", normal_style),
+    ]
+]
+
+for item in items:
+    description = safe_text(item.get("description", ""))
+    quantity = float(item.get("quantity", 0))
+    price = float(item.get("price", 0))
+    amount = quantity * price
+
+    table_data.append(
+        [
+            Paragraph(description, normal_style),
+            Paragraph(f"{quantity:g}", normal_style),
+            Paragraph(format_currency(price), normal_style),
+            Paragraph(format_currency(amount), normal_style),
+        ]
+    )
+
+items_table = Table(
+    table_data,
+    colWidths=[250, 55, 100, 100],
+    repeatRows=1,
+)
+
+items_table.setStyle(
+    TableStyle(
+        [
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+            ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]
+    )
+)
+
+story.append(items_table)
+story.append(Spacer(1, 16))
+
+subtotal = calculate_subtotal(items)
+
+try:
+    tax_rate_value = float(tax_rate)
+except (ValueError, TypeError):
+    tax_rate_value = 0
+
+tax_amount = subtotal * tax_rate_value / 100
+total = subtotal + tax_amount
+
+try:
+    paid = float(amount_paid)
+except (ValueError, TypeError):
+    paid = 0
+
+balance = max(total - paid, 0)
+
+summary_data = [
+    ["Subtotal", format_currency(subtotal)],
+    [f"Tax ({tax_rate_value:g}%)", format_currency(tax_amount)],
+    ["Total", format_currency(total)],
+    ["Amount Paid", format_currency(paid)],
+    ["Balance Due", format_currency(balance)],
+]
+
+summary_table = Table(
+    summary_data,
+    colWidths=[390, 115],
+    hAlign="RIGHT",
+)
+
+summary_table.setStyle(
+    TableStyle(
+        [
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("BACKGROUND", (0, 2), (-1, 2), colors.lightgrey),
+            ("BACKGROUND", (0, 4), (-1, 4), colors.lightgrey),
+            ("FONTNAME", (0, 2), (-1, 2), "Helvetica-Bold"),
+            ("FONTNAME", (0, 4), (-1, 4), "Helvetica-Bold"),
+        ]
+    )
+)
+
+story.append(summary_table)
+story.append(Spacer(1, 18))
+
+if notes:
+    story.append(
+        Paragraph(
+            "<b>Notes</b>",
+            heading_style,
+        )
+    )
+    story.append(
+        Paragraph(
+            safe_text(notes).replace("\n", "<br/>"),
+            normal_style,
+        )
+    )
+    story.append(Spacer(1, 12))
+
+if payment_url:
+    story.append(
+        Paragraph(
+            "<b>Payment Link</b>",
+            heading_style,
+        )
+    )
+    story.append(
+        Paragraph(
+            safe_text(payment_url),
+            normal_style,
+        )
+    )
+
+story.append(Spacer(1, 18))
+
+story.append(
+    Paragraph(
+        "Thank you for your business.",
+        ParagraphStyle(
+            "Footer",
+            parent=normal_style,
+            alignment=TA_CENTER,
+            fontSize=9,
+        ),
+    )
+)
+
+doc.build(story)
+
+buffer.seek(0)
+return buffer.getvalue()
+```
+
+# ============================================================
+
+# EMAIL
+
+# ============================================================
+
+def send_invoice_email(
+sender_email,
+app_password,
+recipient_email,
+invoice_number,
+pdf_bytes,
+customer_name,
+):
+if not sender_email or not app_password:
+raise ValueError(
+"Gmail sender email and app password are required."
+)
+
+```
+if not recipient_email:
+    raise ValueError(
+        "Customer email address is required."
+    )
+
+message = MIMEMultipart()
+
+message["From"] = sender_email
+message["To"] = recipient_email
+message["Subject"] = f"Invoice {invoice_number}"
+
+body = (
+    f"Dear {customer_name or 'Customer'},\n\n"
+    f"Please find attached your invoice {invoice_number}.\n\n"
+    "Thank you for your business."
+)
+
+message.attach(
+    MIMEText(body, "plain")
+)
+
+attachment = MIMEApplication(
+    pdf_bytes,
+    _subtype="pdf",
+)
+
+attachment.add_header(
+    "Content-Disposition",
+    "attachment",
+    filename=f"{invoice_number}.pdf",
+)
+
+message.attach(attachment)
+
+with smtplib.SMTP_SSL(
+    "smtp.gmail.com",
+    465,
+) as server:
+    server.login(
+        sender_email,
+        app_password,
+    )
+
+    server.send_message(message)
+```
+
+# ============================================================
+
+# SESSION STATE
+
+# ============================================================
+
+if "items" not in st.session_state:
+st.session_state["items"] = [
+{
+"description": "Consulting Service",
+"quantity": 1.0,
+"price": 0.0,
+},
+{
+"description": "Software License",
+"quantity": 1.0,
+"price": 0.0,
+},
+]
+
+if "generated_pdf" not in st.session_state:
+st.session_state["generated_pdf"] = None
+
+if "generated_ai_message" not in st.session_state:
+st.session_state["generated_ai_message"] = ""
+
+# ============================================================
+
+# SIDEBAR
+
+# ============================================================
+
+st.sidebar.title("⚙️ Business Settings")
 
 business_name = st.sidebar.text_input(
-    "Business Name",
-    "My Freelance Business"
+"Business Name",
+value="Crown Construction Company Nig LTD",
 )
 
 business_address = st.sidebar.text_area(
-    "Business Address",
-    "123 Business Street, Nigeria"
+"Business Address",
+value="",
 )
 
 business_phone = st.sidebar.text_input(
-    "Phone Number",
-    "+234 800 000 0000"
+"Business Phone",
+value="",
 )
 
 business_email = st.sidebar.text_input(
-    "Business Email",
-    "business@example.com"
+"Business Email",
+value="",
 )
 
-# =========================================================
-# CUSTOMER INFORMATION
-# =========================================================
-st.header("👤 Customer Information")
+logo_file = st.sidebar.file_uploader(
+"Business Logo",
+type=["png", "jpg", "jpeg"],
+)
+
+st.sidebar.markdown("---")
+
+st.sidebar.subheader("💳 Payment Settings")
+
+payment_url = st.sidebar.text_input(
+"Paystack Payment Link",
+value="",
+help="Paste your Paystack payment link here.",
+)
+
+st.sidebar.markdown("---")
+
+st.sidebar.subheader("📧 Gmail Settings")
+
+gmail_sender = st.sidebar.text_input(
+"Gmail Address",
+value="",
+)
+
+gmail_app_password = st.sidebar.text_input(
+"Gmail App Password",
+value="",
+type="password",
+)
+
+st.sidebar.markdown("---")
+
+st.sidebar.info(
+"Use a Gmail App Password when sending invoices through Gmail."
+)
+
+# ============================================================
+
+# HEADER
+
+# ============================================================
+
+st.title("🧾 AI Smart Invoicer & Debt Collector")
+
+st.write(
+"Create professional invoices, track payments, monitor debts, "
+"send invoices by email, and generate AI-powered customer messages."
+)
+
+# ============================================================
+
+# TABS
+
+# ============================================================
+
+tab1, tab2, tab3 = st.tabs(
+[
+"🧾 Create Invoice",
+"📚 Invoice History",
+"📊 Analytics Dashboard",
+]
+)
+
+# ============================================================
+
+# CREATE INVOICE
+
+# ============================================================
+
+with tab1:
+
+```
+st.subheader("Customer Information")
 
 col1, col2 = st.columns(2)
 
 with col1:
     customer_name = st.text_input(
-        "Customer Name",
-        placeholder="Enter customer's name"
+        "Customer Name"
     )
 
     customer_email = st.text_input(
-        "Customer Email",
-        placeholder="customer@example.com"
+        "Customer Email"
+    )
+
+    customer_phone = st.text_input(
+        "Customer Phone"
     )
 
 with col2:
     customer_address = st.text_area(
-        "Customer Address",
-        placeholder="Enter customer's address"
+        "Customer Address"
     )
 
-    customer_phone = st.text_input(
-        "Customer Phone",
-        placeholder="+234..."
+    invoice_number = st.text_input(
+        "Invoice Number",
+        value=f"INV-{date.today().strftime('%Y%m%d')}",
     )
 
-# =========================================================
-# INVOICE INFORMATION
-# =========================================================
-st.header("🧾 Invoice Information")
+    invoice_date = st.date_input(
+        "Invoice Date",
+        value=date.today(),
+    )
+
+    due_date = st.date_input(
+        "Due Date",
+        value=date.today(),
+    )
+
+st.markdown("---")
+
+st.subheader("Invoice Items")
+
+updated_items = []
+
+for index, item in enumerate(
+    st.session_state["items"]
+):
+    col1, col2, col3, col4 = st.columns(
+        [4, 1.5, 2, 1]
+    )
+
+    with col1:
+        description = st.text_input(
+            "Description",
+            value=item.get(
+                "description",
+                "",
+            ),
+            key=f"description_{index}",
+        )
+
+    with col2:
+        quantity = st.number_input(
+            "Quantity",
+            min_value=0.0,
+            value=float(
+                item.get(
+                    "quantity",
+                    1,
+                )
+            ),
+            step=1.0,
+            key=f"quantity_{index}",
+        )
+
+    with col3:
+        price = st.number_input(
+            "Unit Price",
+            min_value=0.0,
+            value=float(
+                item.get(
+                    "price",
+                    0,
+                )
+            ),
+            step=100.0,
+            key=f"price_{index}",
+        )
+
+    with col4:
+        remove_item = st.checkbox(
+            "Remove",
+            key=f"remove_{index}",
+        )
+
+    if not remove_item:
+        updated_items.append(
+            {
+                "description": description,
+                "quantity": quantity,
+                "price": price,
+            }
+        )
+
+st.session_state["items"] = updated_items
+
+if st.button(
+    "➕ Add Another Item",
+    use_container_width=False,
+):
+    st.session_state["items"].append(
+        {
+            "description": "",
+            "quantity": 1.0,
+            "price": 0.0,
+        }
+    )
+
+    st.rerun()
+
+items = clean_items(
+    st.session_state["items"]
+)
+
+if not items:
+    st.warning(
+        "Please add at least one invoice item."
+    )
+
+st.markdown("---")
+
+st.subheader("Invoice Summary")
 
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    invoice_number = st.text_input(
-        "Invoice Number",
-        "INV-001"
+    tax_rate = st.number_input(
+        "Tax Rate (%)",
+        min_value=0.0,
+        max_value=100.0,
+        value=0.0,
+        step=0.5,
     )
 
+subtotal = calculate_subtotal(items)
+tax_amount = subtotal * tax_rate / 100
+total_amount = subtotal + tax_amount
+
 with col2:
-    invoice_date = st.date_input(
-        "Invoice Date",
-        date.today()
+    st.metric(
+        "Subtotal",
+        format_currency(subtotal),
     )
 
 with col3:
-    due_date = st.date_input(
-        "Due Date",
-        date.today()
-    )
-
-# =========================================================
-# ITEMS
-# =========================================================
-st.subheader("📦 Invoice Items")
-
-if "items" not in st.session_state:
-    st.session_state["items"] = [
-        {
-            "description": "",
-            "quantity": 1,
-            "price": 0.0
-        }
-    ]
-
-total = 0.0
-
-for i, item in enumerate(st.session_state["items"]):
-
-    col1, col2, col3, col4 = st.columns([4, 1, 2, 2])
-
-    with col1:
-        item["description"] = st.text_input(
-            "Description",
-            value=item["description"],
-            key=f"description_{i}"
-        )
-
-    with col2:
-        item["quantity"] = st.number_input(
-            "Qty",
-            min_value=1,
-            value=item["quantity"],
-            key=f"quantity_{i}"
-        )
-
-    with col3:
-        item["price"] = st.number_input(
-            "Unit Price (₦)",
-            min_value=0.0,
-            value=float(item["price"]),
-            key=f"price_{i}"
-        )
-
-    subtotal = item["quantity"] * item["price"]
-    total += subtotal
-
-    with col4:
-        st.write("")
-        st.write("")
-        st.write(f"**₦{subtotal:,.2f}**")
-
-if st.button("➕ Add Another Item"):
-    st.session_state["items"].append(
-        {
-            "description": "",
-            "quantity": 1,
-            "price": 0.0
-        }
-    )
-    st.rerun()
-
-# =========================================================
-# TOTAL
-# =========================================================
-st.divider()
-
-col1, col2 = st.columns([3, 1])
-
-with col2:
-    st.subheader("Invoice Total")
     st.metric(
         "Total",
-        f"₦{total:,.2f}"
+        format_currency(total_amount),
     )
 
-# =========================================================
-# NOTES
-# =========================================================
-st.header("📝 Invoice Notes")
+st.markdown("---")
 
-notes = st.text_area(
-    "Additional Notes",
-    placeholder="Thank you for your business..."
-)
+st.subheader("Payment Status")
 
-# =========================================================
-# PDF GENERATOR
-# =========================================================
-def generate_pdf_invoice(
-    biz_data,
-    cust_data,
-    inv_data
-):
-    buffer = io.BytesIO()
-
-    document = SimpleDocTemplate(
-        buffer,
-        pagesize=letter,
-        rightMargin=40,
-        leftMargin=40,
-        topMargin=40,
-        bottomMargin=40
-    )
-
-    styles = getSampleStyleSheet()
-
-    title_style = ParagraphStyle(
-        "InvoiceTitle",
-        parent=styles["Title"],
-        fontSize=22,
-        spaceAfter=15
-    )
-
-    normal_style = styles["Normal"]
-
-    story = []
-
-    story.append(
-        Paragraph(
-            biz_data["name"],
-            title_style
-        )
-    )
-
-    story.append(
-        Paragraph(
-            biz_data["address"],
-            normal_style
-        )
-    )
-
-    story.append(
-        Paragraph(
-            f"Phone: {biz_data['phone']} | "
-            f"Email: {biz_data['email']}",
-            normal_style
-        )
-    )
-
-    story.append(Spacer(1, 20))
-
-    story.append(
-        Paragraph(
-            f"<b>INVOICE</b> #{inv_data['number']}",
-            styles["Heading2"]
-        )
-    )
-
-    story.append(
-        Paragraph(
-            f"Invoice Date: {inv_data['invoice_date']}<br/>"
-            f"Due Date: {inv_data['due_date']}",
-            normal_style
-        )
-    )
-
-    story.append(Spacer(1, 15))
-
-    story.append(
-        Paragraph(
-            "<b>Bill To:</b><br/>"
-            f"{cust_data['name']}<br/>"
-            f"{cust_data['address']}<br/>"
-            f"{cust_data['email']}<br/>"
-            f"{cust_data['phone']}",
-            normal_style
-        )
-    )
-
-    story.append(Spacer(1, 20))
-
-    table_data = [
-        ["Description", "Qty", "Unit Price", "Amount"]
-    ]
-
-    for item in inv_data["items"]:
-        amount = item["quantity"] * item["price"]
-
-        table_data.append([
-            item["description"],
-            str(item["quantity"]),
-            f"₦{item['price']:,.2f}",
-            f"₦{amount:,.2f}"
-        ])
-
-    table_data.append([
-        "",
-        "",
-        "TOTAL",
-        f"₦{inv_data['total']:,.2f}"
-    ])
-
-    table = Table(
-        table_data,
-        colWidths=[250, 50, 90, 90]
-    )
-
-    table.setStyle(
-        TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTNAME", (-2, -1), (-1, -1), "Helvetica-Bold"),
-            ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-            ("TOPPADDING", (0, 0), (-1, -1), 8),
-        ])
-    )
-
-    story.append(table)
-
-    story.append(Spacer(1, 20))
-
-    story.append(
-        Paragraph(
-            f"<b>Notes:</b> {inv_data['notes']}",
-            normal_style
-        )
-    )
-
-    story.append(Spacer(1, 30))
-
-    story.append(
-        Paragraph(
-            "Thank you for your business!",
-            normal_style
-        )
-    )
-
-    document.build(story)
-
-    buffer.seek(0)
-
-    return buffer
-
-# =========================================================
-# GENERATE PDF
-# =========================================================
-st.header("📥 Generate Invoice")
-
-if st.button("Generate PDF Invoice", type="primary"):
-
-    if not customer_name:
-        st.warning("Please enter the customer's name.")
-
-    elif not any(
-        item["description"].strip()
-        for item in st.session_state.items
-    ):
-        st.warning("Please add at least one invoice item.")
-
-    else:
-
-        biz_data = {
-            "name": business_name,
-            "address": business_address,
-            "phone": business_phone,
-            "email": business_email
-        }
-
-        cust_data = {
-            "name": customer_name,
-            "address": customer_address,
-            "email": customer_email,
-            "phone": customer_phone
-        }
-
-        inv_data = {
-            "number": invoice_number,
-            "invoice_date": invoice_date,
-            "due_date": due_date,
-            "items": st.session_state.items,
-            "total": total,
-            "notes": notes
-        }
-
-        pdf = generate_pdf_invoice(
-            biz_data,
-            cust_data,
-            inv_data
-        )
-
-        st.success("Invoice created successfully! ✅")
-
-        st.download_button(
-            label="⬇️ Download PDF Invoice",
-            data=pdf,
-            file_name=f"{invoice_number}.pdf",
-            mime="application/pdf"
-        )
-
-# =========================================================
-# EMAIL / DEBT COLLECTION
-# =========================================================
-st.divider()
-
-st.header("📧 Customer Follow-Up")
-
-followup_type = st.selectbox(
-    "Follow-up Type",
+payment_status = st.selectbox(
+    "Payment Status",
     [
-        "Payment Reminder",
-        "Overdue Payment",
-        "Thank You Message"
-    ]
+        "Unpaid",
+        "Partially Paid",
+        "Paid",
+    ],
 )
 
-if followup_type == "Payment Reminder":
-    default_message = (
-        f"Dear {customer_name or 'Customer'},\n\n"
-        f"This is a friendly reminder regarding invoice "
-        f"{invoice_number}, which is due on {due_date}.\n\n"
-        f"Amount due: ₦{total:,.2f}\n\n"
-        "Thank you."
-    )
+if payment_status == "Paid":
+    amount_paid = total_amount
 
-elif followup_type == "Overdue Payment":
-    default_message = (
-        f"Dear {customer_name or 'Customer'},\n\n"
-        f"We would like to remind you that invoice "
-        f"{invoice_number} has an outstanding balance of "
-        f"₦{total:,.2f}.\n\n"
-        "Please arrange payment at your earliest convenience.\n\n"
-        "Thank you."
+elif payment_status == "Partially Paid":
+    amount_paid = st.number_input(
+        "Amount Paid",
+        min_value=0.0,
+        max_value=float(total_amount),
+        value=0.0,
+        step=100.0,
     )
 
 else:
-    default_message = (
-        f"Dear {customer_name or 'Customer'},\n\n"
-        "Thank you for doing business with us. "
-        "We sincerely appreciate your support.\n\n"
-        "We look forward to working with you again."
-    )
+    amount_paid = 0.0
 
-email_subject = st.text_input(
-    "Email Subject",
-    f"{followup_type} - {invoice_number}"
+balance = max(
+    total_amount - amount_paid,
+    0,
 )
 
-email_message = st.text_area(
-    "Email Message",
-    default_message,
-    height=220
-)
+col1, col2 = st.columns(2)
 
-if st.button("📋 Prepare Email"):
-    st.success("Email message prepared successfully.")
-    st.code(
-        f"To: {customer_email}\n"
-        f"Subject: {email_subject}\n\n"
-        f"{email_message}"
+with col1:
+    st.metric(
+        "Amount Paid",
+        format_currency(amount_paid),
     )
 
-# =========================================================
-# AI SECTION
-# =========================================================
-st.divider()
+with col2:
+    st.metric(
+        "Balance Due",
+        format_currency(balance),
+    )
+
+st.markdown("---")
+
+notes = st.text_area(
+    "Invoice Notes",
+    placeholder="Additional notes for the customer...",
+)
+
+st.markdown("---")
+
+st.subheader("🔔 Customer Reminder")
+
+if balance > 0:
+    reminder_message = (
+        f"Dear {customer_name or 'Customer'}, "
+        f"this is a friendly reminder that invoice "
+        f"{invoice_number} has an outstanding balance of "
+        f"{format_currency(balance)}."
+    )
+else:
+    reminder_message = (
+        f"Dear {customer_name or 'Customer'}, "
+        f"thank you for settling invoice "
+        f"{invoice_number}."
+    )
+
+st.text_area(
+    "Suggested Reminder",
+    value=reminder_message,
+    height=120,
+)
+
+st.markdown("---")
+
+st.subheader("📄 Generate Invoice")
+
+generate_pdf_clicked = st.button(
+    "📄 Generate PDF Invoice",
+    type="primary",
+    use_container_width=True,
+)
+
+if generate_pdf_clicked:
+
+    if not customer_name.strip():
+        st.error(
+            "Please enter the customer name."
+        )
+
+    elif not items:
+        st.error(
+            "Please add at least one valid invoice item."
+        )
+
+    else:
+        try:
+            logo_bytes = None
+
+            if logo_file is not None:
+                logo_bytes = logo_file.getvalue()
+
+            pdf_bytes = generate_pdf_invoice(
+                business_name=business_name,
+                business_address=business_address,
+                business_phone=business_phone,
+                business_email=business_email,
+                customer_name=customer_name,
+                customer_email=customer_email,
+                customer_phone=customer_phone,
+                customer_address=customer_address,
+                invoice_number=invoice_number,
+                invoice_date=str(invoice_date),
+                due_date=str(due_date),
+                items=items,
+                tax_rate=tax_rate,
+                amount_paid=amount_paid,
+                notes=notes,
+                payment_url=payment_url,
+                logo_bytes=logo_bytes,
+            )
+
+            st.session_state[
+                "generated_pdf"
+            ] = pdf_bytes
+
+            st.success(
+                "PDF invoice generated successfully."
+            )
+
+        except Exception as e:
+            st.session_state[
+                "generated_pdf"
+            ] = None
+
+            st.error(
+                f"PDF generation failed: {type(e).__name__}: {e}"
+            )
+
+if st.session_state["generated_pdf"]:
+
+    st.download_button(
+        label="⬇️ Download PDF Invoice",
+        data=st.session_state["generated_pdf"],
+        file_name=f"{invoice_number}.pdf",
+        mime="application/pdf",
+        use_container_width=True,
+    )
+
+st.markdown("---")
+
+st.subheader("💾 Save Invoice")
+
+if st.button(
+    "💾 Save Invoice to Database",
+    use_container_width=True,
+):
+
+    if not customer_name.strip():
+        st.error(
+            "Please enter the customer name before saving."
+        )
+
+    elif not items:
+        st.error(
+            "Please add at least one invoice item."
+        )
+
+    else:
+
+        if balance <= 0:
+            status = "Paid"
+        elif amount_paid > 0:
+            status = "Partially Paid"
+        else:
+            status = "Unpaid"
+
+        try:
+            save_invoice_to_db(
+                invoice_number=invoice_number,
+                customer_name=customer_name,
+                customer_email=customer_email,
+                invoice_date=str(invoice_date),
+                total_amount=total_amount,
+                amount_paid=amount_paid,
+                balance=balance,
+                status=status,
+            )
+
+            st.success(
+                "Invoice saved successfully."
+            )
+
+        except Exception as e:
+            st.error(
+                f"Could not save invoice: {type(e).__name__}: {e}"
+            )
+
+st.markdown("---")
+
+st.subheader("📧 Send Invoice by Email")
+
+if st.button(
+    "📧 Send Invoice by Email",
+    use_container_width=True,
+):
+
+    if not st.session_state["generated_pdf"]:
+        st.error(
+            "Generate the PDF invoice first."
+        )
+
+    elif not customer_email.strip():
+        st.error(
+            "Please enter the customer's email address."
+        )
+
+    elif not gmail_sender.strip():
+        st.error(
+            "Please enter your Gmail address in the sidebar."
+        )
+
+    elif not gmail_app_password.strip():
+        st.error(
+            "Please enter your Gmail App Password in the sidebar."
+        )
+
+    else:
+        try:
+            send_invoice_email(
+                sender_email=gmail_sender,
+                app_password=gmail_app_password,
+                recipient_email=customer_email,
+                invoice_number=invoice_number,
+                pdf_bytes=st.session_state[
+                    "generated_pdf"
+                ],
+                customer_name=customer_name,
+            )
+
+            st.success(
+                "Invoice email sent successfully."
+            )
+
+        except Exception as e:
+            st.error(
+                f"Email sending failed: {type(e).__name__}: {e}"
+            )
+```
+
+# ============================================================
+
+# INVOICE HISTORY
+
+# ============================================================
+
+with tab2:
+
+```
+st.subheader("📚 Invoice History")
+
+try:
+    history_df = get_invoice_history()
+
+    if history_df.empty:
+        st.info(
+            "No invoices have been saved yet."
+        )
+
+    else:
+        display_df = history_df.copy()
+
+        display_df["total_amount"] = (
+            display_df["total_amount"]
+            .apply(format_currency)
+        )
+
+        display_df["amount_paid"] = (
+            display_df["amount_paid"]
+            .apply(format_currency)
+        )
+
+        display_df["balance"] = (
+            display_df["balance"]
+            .apply(format_currency)
+        )
+
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+except Exception as e:
+    st.error(
+        f"Could not load invoice history: {type(e).__name__}: {e}"
+    )
+```
+
+# ============================================================
+
+# ANALYTICS DASHBOARD
+
+# ============================================================
+
+with tab3:
+
+```
+st.subheader("📊 Analytics Dashboard")
+
+try:
+    analytics_df = get_invoice_history()
+
+    if analytics_df.empty:
+        st.info(
+            "Save some invoices first to see analytics."
+        )
+
+    else:
+
+        total_invoiced = analytics_df[
+            "total_amount"
+        ].sum()
+
+        total_collected = analytics_df[
+            "amount_paid"
+        ].sum()
+
+        total_debt = analytics_df[
+            "balance"
+        ].sum()
+
+        invoice_count = len(
+            analytics_df
+        )
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            st.metric(
+                "Total Invoiced",
+                format_currency(total_invoiced),
+            )
+
+        with col2:
+            st.metric(
+                "Total Collected",
+                format_currency(total_collected),
+            )
+
+        with col3:
+            st.metric(
+                "Outstanding Debt",
+                format_currency(total_debt),
+            )
+
+        with col4:
+            st.metric(
+                "Number of Invoices",
+                invoice_count,
+            )
+
+        st.markdown("---")
+
+        # Payment chart
+        chart_data = pd.DataFrame(
+            {
+                "Category": [
+                    "Collected",
+                    "Outstanding",
+                ],
+                "Amount": [
+                    total_collected,
+                    total_debt,
+                ],
+            }
+        )
+
+        fig_pie = px.pie(
+            chart_data,
+            names="Category",
+            values="Amount",
+            title="Collected vs Outstanding",
+        )
+
+        st.plotly_chart(
+            fig_pie,
+            use_container_width=True,
+        )
+
+        # Status chart
+        status_data = (
+            analytics_df["status"]
+            .value_counts()
+            .reset_index()
+        )
+
+        status_data.columns = [
+            "Status",
+            "Count",
+        ]
+
+        fig_bar = px.bar(
+            status_data,
+            x="Status",
+            y="Count",
+            title="Invoice Status",
+        )
+
+        st.plotly_chart(
+            fig_bar,
+            use_container_width=True,
+        )
+
+except Exception as e:
+    st.error(
+        f"Analytics error: {type(e).__name__}: {e}"
+    )
+```
+
+# ============================================================
+
+# AI MESSAGE ASSISTANT
+
+# ============================================================
+
+st.markdown("---")
 
 st.header("🤖 AI Message Assistant")
 
 st.write(
-    "Use this section to prepare a professional message "
-    "for your customer."
+"Generate professional customer messages using AI."
 )
 
 ai_request = st.text_area(
-    "What should the AI write?",
-    placeholder=(
-        "Example: Write a polite message asking a customer "
-        "to pay an overdue invoice."
-    )
+"What message do you want to generate?",
+placeholder=(
+"Example: Write a polite reminder to a customer "
+"who has an overdue invoice."
+),
 )
 
-if st.button("✨ Generate AI Message"):
+col1, col2 = st.columns(2)
+
+with col1:
+ai_tone = st.selectbox(
+"Tone",
+[
+"Professional",
+"Friendly",
+"Polite",
+"Firm",
+"Short",
+],
+)
+
+with col2:
+ai_format = st.selectbox(
+"Format",
+[
+"Email",
+"WhatsApp Message",
+"SMS",
+],
+)
+
+if st.button(
+"🤖 Generate AI Message",
+use_container_width=True,
+):
+
+```
+if not ai_request.strip():
+    st.warning(
+        "Please describe the message you want."
+    )
+
+elif OpenAI is None:
+    st.error(
+        "The OpenAI package is not installed. "
+        "Please check requirements.txt."
+    )
+
+else:
+
+    api_key = get_openai_api_key()
 
     if not api_key:
         st.error(
-            "OpenAI API key is not available. "
-            "Please check your .env file."
+            "OpenAI API key not found. "
+            "Please check your Streamlit Secrets."
         )
-
-    elif not ai_request.strip():
-        st.warning("Please enter what you want the AI to write.")
 
     else:
-        st.info(
-            "Your OpenAI API key is connected. "
-            "The AI message feature is ready to be connected "
-            "to the OpenAI API."
+
+        try:
+            client = OpenAI(
+                api_key=api_key
+            )
+
+            prompt = f"""
+```
+
+Create a {ai_format.lower()} for a customer.
+
+Tone: {ai_tone}
+
+User request:
+{ai_request}
+
+Make the message clear, professional, and ready to send.
+Do not add explanations outside the message.
+"""
+
+```
+            response = client.responses.create(
+                model="gpt-5.6-luna",
+                input=prompt,
+            )
+
+            generated_message = (
+                response.output_text
+                if hasattr(
+                    response,
+                    "output_text",
+                )
+                else str(response)
+            )
+
+            st.session_state[
+                "generated_ai_message"
+            ] = generated_message
+
+            st.success(
+                "AI message generated successfully."
+            )
+
+        except Exception as e:
+            st.error(
+                f"AI generation failed: {type(e).__name__}: {e}"
+            )
+```
+
+if st.session_state[
+"generated_ai_message"
+]:
+
+```
+st.text_area(
+    "Generated Message",
+    value=st.session_state[
+        "generated_ai_message"
+    ],
+    height=220,
+)
+```
+
+# ============================================================
+
+# CUSTOMER FOLLOW-UP
+
+# ============================================================
+
+st.markdown("---")
+
+st.header("📞 Customer Follow-Up")
+
+try:
+followup_df = get_invoice_history()
+
+```
+if followup_df.empty:
+    st.info(
+        "There are no saved invoices requiring follow-up."
+    )
+
+else:
+
+    debt_df = followup_df[
+        followup_df["balance"] > 0
+    ].copy()
+
+    if debt_df.empty:
+        st.success(
+            "No outstanding customer debts."
         )
 
-        st.write(
-            "Request received:"
+    else:
+
+        st.warning(
+            f"{len(debt_df)} invoice(s) have outstanding balances."
         )
 
-        st.write(ai_request)
+        for _, row in debt_df.iterrows():
 
-# =========================================================
+            st.write(
+                f"**{row['customer_name']}** — "
+                f"Invoice {row['invoice_number']} — "
+                f"Balance: {format_currency(row['balance'])}"
+            )
+```
+
+except Exception as e:
+st.error(
+f"Follow-up section error: {type(e).**name**}: {e}"
+)
+
+# ============================================================
+
 # FOOTER
-# =========================================================
-st.divider()
+
+# ============================================================
+
+st.markdown("---")
 
 st.caption(
-    "📄 AI Smart Invoicer & Debt Collector"
+"AI Smart Invoicer & Debt Collector"
 )
