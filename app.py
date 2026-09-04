@@ -10,20 +10,12 @@ from email.mime.text import MIMEText
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-
 from openai import OpenAI
-
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.platypus import (
-SimpleDocTemplate,
-Paragraph,
-Spacer,
-Table,
-TableStyle,
-)
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
 # ============================================================
 
@@ -176,17 +168,11 @@ for item in items:
     except (ValueError, TypeError):
         price = 0.0
 
-    if quantity < 0:
-        quantity = 0.0
-
-    if price < 0:
-        price = 0.0
-
     cleaned.append(
         {
             "description": description,
-            "quantity": quantity,
-            "price": price,
+            "quantity": max(quantity, 0.0),
+            "price": max(price, 0.0),
         }
     )
 
@@ -202,6 +188,7 @@ for item in items:
         quantity = float(
             item.get("quantity", 0)
         )
+
         price = float(
             item.get("price", 0)
         )
@@ -209,7 +196,7 @@ for item in items:
         subtotal += quantity * price
 
     except (ValueError, TypeError):
-        continue
+        pass
 
 return subtotal
 ```
@@ -299,9 +286,7 @@ title_style = ParagraphStyle(
 
 story = []
 
-# --------------------------------------------------------
 # BUSINESS INFORMATION
-# --------------------------------------------------------
 
 if business_name:
     story.append(
@@ -335,7 +320,9 @@ if business_email:
         )
     )
 
-story.append(Spacer(1, 12))
+story.append(
+    Spacer(1, 12)
+)
 
 story.append(
     Paragraph(
@@ -344,9 +331,7 @@ story.append(
     )
 )
 
-# --------------------------------------------------------
 # INVOICE DETAILS
-# --------------------------------------------------------
 
 invoice_details = [
     [
@@ -437,11 +422,12 @@ details_table.setStyle(
 )
 
 story.append(details_table)
-story.append(Spacer(1, 16))
 
-# --------------------------------------------------------
+story.append(
+    Spacer(1, 16)
+)
+
 # CUSTOMER
-# --------------------------------------------------------
 
 story.append(
     Paragraph(
@@ -482,11 +468,11 @@ if customer_address:
         )
     )
 
-story.append(Spacer(1, 16))
+story.append(
+    Spacer(1, 16)
+)
 
-# --------------------------------------------------------
 # ITEMS
-# --------------------------------------------------------
 
 table_data = [
     [
@@ -613,11 +599,12 @@ items_table.setStyle(
 )
 
 story.append(items_table)
-story.append(Spacer(1, 16))
 
-# --------------------------------------------------------
+story.append(
+    Spacer(1, 16)
+)
+
 # TOTALS
-# --------------------------------------------------------
 
 subtotal = calculate_subtotal(items)
 
@@ -742,11 +729,12 @@ summary_table.setStyle(
 )
 
 story.append(summary_table)
-story.append(Spacer(1, 18))
 
-# --------------------------------------------------------
+story.append(
+    Spacer(1, 18)
+)
+
 # NOTES
-# --------------------------------------------------------
 
 if notes:
     story.append(
@@ -766,11 +754,11 @@ if notes:
         )
     )
 
-    story.append(Spacer(1, 12))
+    story.append(
+        Spacer(1, 12)
+    )
 
-# --------------------------------------------------------
 # PAYMENT LINK
-# --------------------------------------------------------
 
 if payment_url:
     story.append(
@@ -787,11 +775,11 @@ if payment_url:
         )
     )
 
-    story.append(Spacer(1, 12))
+    story.append(
+        Spacer(1, 12)
+    )
 
-# --------------------------------------------------------
 # FOOTER
-# --------------------------------------------------------
 
 footer_style = ParagraphStyle(
     "FooterInvoice",
@@ -883,7 +871,6 @@ with smtplib.SMTP_SSL(
     "smtp.gmail.com",
     465,
 ) as server:
-
     server.login(
         sender_email,
         app_password,
@@ -1024,16 +1011,14 @@ tab1, tab2, tab3 = st.tabs(
 # ============================================================
 
 with tab1:
-
-```
 st.subheader(
-    "Customer Information"
+"Customer Information"
 )
 
+```
 col1, col2 = st.columns(2)
 
 with col1:
-
     customer_name = st.text_input(
         "Customer Name"
     )
@@ -1047,7 +1032,6 @@ with col1:
     )
 
 with col2:
-
     customer_address = st.text_area(
         "Customer Address"
     )
@@ -1081,13 +1065,11 @@ updated_items = []
 for index, item in enumerate(
     st.session_state["invoice_items"]
 ):
-
     col1, col2, col3, col4 = st.columns(
         [4, 1.5, 2, 1]
     )
 
     with col1:
-
         description = st.text_input(
             "Description",
             value=item.get(
@@ -1100,7 +1082,6 @@ for index, item in enumerate(
         )
 
     with col2:
-
         quantity = st.number_input(
             "Quantity",
             min_value=0.0,
@@ -1117,7 +1098,6 @@ for index, item in enumerate(
         )
 
     with col3:
-
         price = st.number_input(
             "Unit Price",
             min_value=0.0,
@@ -1134,7 +1114,6 @@ for index, item in enumerate(
         )
 
     with col4:
-
         remove_item = st.checkbox(
             "Remove",
             key=(
@@ -1143,7 +1122,6 @@ for index, item in enumerate(
         )
 
     if not remove_item:
-
         updated_items.append(
             {
                 "description": description,
@@ -1152,17 +1130,12 @@ for index, item in enumerate(
             }
         )
 
-st.session_state[
-    "invoice_items"
-] = updated_items
+st.session_state["invoice_items"] = updated_items
 
 if st.button(
     "➕ Add Another Item"
 ):
-
-    st.session_state[
-        "invoice_items"
-    ].append(
+    st.session_state["invoice_items"].append(
         {
             "description": "",
             "quantity": 1.0,
@@ -1173,9 +1146,7 @@ if st.button(
     st.rerun()
 
 items = clean_items(
-    st.session_state[
-        "invoice_items"
-    ]
+    st.session_state["invoice_items"]
 )
 
 if not items:
@@ -1251,11 +1222,9 @@ payment_status = st.selectbox(
 )
 
 if payment_status == "Paid":
-
     amount_paid = total_amount
 
 elif payment_status == "Partially Paid":
-
     amount_paid = st.number_input(
         "Amount Paid",
         min_value=0.0,
@@ -1267,7 +1236,6 @@ elif payment_status == "Partially Paid":
     )
 
 else:
-
     amount_paid = 0.0
 
 balance = max(
@@ -1278,7 +1246,6 @@ balance = max(
 col1, col2 = st.columns(2)
 
 with col1:
-
     st.metric(
         "Amount Paid",
         format_currency(
@@ -1287,7 +1254,6 @@ with col1:
     )
 
 with col2:
-
     st.metric(
         "Balance Due",
         format_currency(
@@ -1311,7 +1277,6 @@ st.subheader(
 )
 
 if balance > 0:
-
     reminder_message = (
         f"Dear "
         f"{customer_name or 'Customer'}, "
@@ -1322,7 +1287,6 @@ if balance > 0:
     )
 
 else:
-
     reminder_message = (
         f"Dear "
         f"{customer_name or 'Customer'}, "
@@ -1338,32 +1302,25 @@ st.text_area(
 
 st.markdown("---")
 
-# --------------------------------------------------------
 # GENERATE PDF
-# --------------------------------------------------------
 
 if st.button(
     "📄 Generate PDF Invoice",
     type="primary",
     use_container_width=True,
 ):
-
     if not customer_name.strip():
-
         st.error(
             "Please enter the customer name."
         )
 
     elif not items:
-
         st.error(
             "Please add at least one valid invoice item."
         )
 
     else:
-
         try:
-
             pdf_bytes = generate_pdf_invoice(
                 business_name=business_name,
                 business_address=business_address,
@@ -1396,7 +1353,6 @@ if st.button(
             )
 
         except Exception as error:
-
             st.session_state[
                 "generated_pdf"
             ] = None
@@ -1410,7 +1366,6 @@ if st.button(
 if st.session_state[
     "generated_pdf"
 ]:
-
     st.download_button(
         label="⬇️ Download PDF Invoice",
         data=st.session_state[
@@ -1425,43 +1380,33 @@ if st.session_state[
 
 st.markdown("---")
 
-# --------------------------------------------------------
 # SAVE INVOICE
-# --------------------------------------------------------
 
 if st.button(
     "💾 Save Invoice to Database",
     use_container_width=True,
 ):
-
     if not customer_name.strip():
-
         st.error(
             "Please enter the customer name."
         )
 
     elif not items:
-
         st.error(
             "Please add at least one valid invoice item."
         )
 
     else:
-
         if balance <= 0:
-
             status = "Paid"
 
         elif amount_paid > 0:
-
             status = "Partially Paid"
 
         else:
-
             status = "Unpaid"
 
         try:
-
             save_invoice_to_db(
                 invoice_number=invoice_number,
                 customer_name=customer_name,
@@ -1480,7 +1425,6 @@ if st.button(
             )
 
         except Exception as error:
-
             st.error(
                 "Could not save invoice: "
                 f"{type(error).__name__}: "
@@ -1489,45 +1433,36 @@ if st.button(
 
 st.markdown("---")
 
-# --------------------------------------------------------
 # EMAIL INVOICE
-# --------------------------------------------------------
 
 if st.button(
     "📧 Send Invoice by Email",
     use_container_width=True,
 ):
-
     if not st.session_state[
         "generated_pdf"
     ]:
-
         st.error(
             "Generate the PDF invoice first."
         )
 
     elif not customer_email.strip():
-
         st.error(
             "Please enter the customer's email address."
         )
 
     elif not gmail_sender.strip():
-
         st.error(
             "Please enter your Gmail address in the sidebar."
         )
 
     elif not gmail_app_password.strip():
-
         st.error(
             "Please enter your Gmail App Password in the sidebar."
         )
 
     else:
-
         try:
-
             send_invoice_email(
                 sender_email=gmail_sender,
                 app_password=gmail_app_password,
@@ -1544,7 +1479,6 @@ if st.button(
             )
 
         except Exception as error:
-
             st.error(
                 "Email sending failed: "
                 f"{type(error).__name__}: "
@@ -1559,49 +1493,31 @@ if st.button(
 # ============================================================
 
 with tab2:
-
-```
 st.subheader(
-    "📚 Invoice History"
+"📚 Invoice History"
 )
 
+```
 try:
-
     history_df = get_invoice_history()
 
     if history_df.empty:
-
         st.info(
             "No invoices have been saved yet."
         )
 
     else:
-
         display_df = history_df.copy()
 
-        display_df[
-            "total_amount"
-        ] = display_df[
-            "total_amount"
-        ].apply(
-            format_currency
-        )
-
-        display_df[
-            "amount_paid"
-        ] = display_df[
-            "amount_paid"
-        ].apply(
-            format_currency
-        )
-
-        display_df[
-            "balance"
-        ] = display_df[
-            "balance"
-        ].apply(
-            format_currency
-        )
+        for column in [
+            "total_amount",
+            "amount_paid",
+            "balance",
+        ]:
+            display_df[column] = (
+                display_df[column]
+                .apply(format_currency)
+            )
 
         st.dataframe(
             display_df,
@@ -1610,7 +1526,6 @@ try:
         )
 
 except Exception as error:
-
     st.error(
         "Could not load invoice history: "
         f"{type(error).__name__}: "
@@ -1625,24 +1540,20 @@ except Exception as error:
 # ============================================================
 
 with tab3:
-
-```
 st.subheader(
-    "📊 Analytics Dashboard"
+"📊 Analytics Dashboard"
 )
 
+```
 try:
-
     analytics_df = get_invoice_history()
 
     if analytics_df.empty:
-
         st.info(
             "Save some invoices first to see analytics."
         )
 
     else:
-
         total_invoiced = analytics_df[
             "total_amount"
         ].sum()
@@ -1662,7 +1573,6 @@ try:
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
-
             st.metric(
                 "Total Invoiced",
                 format_currency(
@@ -1671,7 +1581,6 @@ try:
             )
 
         with col2:
-
             st.metric(
                 "Total Collected",
                 format_currency(
@@ -1680,7 +1589,6 @@ try:
             )
 
         with col3:
-
             st.metric(
                 "Outstanding Debt",
                 format_currency(
@@ -1689,7 +1597,6 @@ try:
             )
 
         with col4:
-
             st.metric(
                 "Number of Invoices",
                 invoice_count,
@@ -1714,9 +1621,7 @@ try:
             chart_data,
             names="Category",
             values="Amount",
-            title=(
-                "Collected vs Outstanding"
-            ),
+            title="Collected vs Outstanding",
         )
 
         st.plotly_chart(
@@ -1750,7 +1655,6 @@ try:
         )
 
 except Exception as error:
-
     st.error(
         "Analytics error: "
         f"{type(error).__name__}: "
@@ -1785,60 +1689,48 @@ placeholder=(
 col1, col2 = st.columns(2)
 
 with col1:
-
-```
 ai_tone = st.selectbox(
-    "Tone",
-    [
-        "Professional",
-        "Friendly",
-        "Polite",
-        "Firm",
-        "Short",
-    ],
+"Tone",
+[
+"Professional",
+"Friendly",
+"Polite",
+"Firm",
+"Short",
+],
 )
-```
 
 with col2:
-
-```
 ai_format = st.selectbox(
-    "Format",
-    [
-        "Email",
-        "WhatsApp Message",
-        "SMS",
-    ],
+"Format",
+[
+"Email",
+"WhatsApp Message",
+"SMS",
+],
 )
-```
 
 if st.button(
 "🤖 Generate AI Message",
 use_container_width=True,
 ):
+if not ai_request.strip():
+st.warning(
+"Please describe the message you want."
+)
 
 ```
-if not ai_request.strip():
-
-    st.warning(
-        "Please describe the message you want."
-    )
-
 else:
-
     api_key = get_openai_api_key()
 
     if not api_key:
-
         st.error(
             "OpenAI API key not found. "
             "Please check your Streamlit Secrets."
         )
 
     else:
-
         try:
-
             client = OpenAI(
                 api_key=api_key
             )
@@ -1863,20 +1755,15 @@ Do not add explanations outside the message.
                 input=prompt,
             )
 
-            generated_message = (
-                response.output_text
-            )
-
             st.session_state[
                 "generated_ai_message"
-            ] = generated_message
+            ] = response.output_text
 
             st.success(
                 "AI message generated successfully."
             )
 
         except Exception as error:
-
             st.error(
                 "AI generation failed: "
                 f"{type(error).__name__}: "
@@ -1887,16 +1774,13 @@ Do not add explanations outside the message.
 if st.session_state[
 "generated_ai_message"
 ]:
-
-```
 st.text_area(
-    "Generated Message",
-    value=st.session_state[
-        "generated_ai_message"
-    ],
-    height=220,
+"Generated Message",
+value=st.session_state[
+"generated_ai_message"
+],
+height=220,
 )
-```
 
 # ============================================================
 
@@ -1911,37 +1795,31 @@ st.header(
 )
 
 try:
-
-```
 followup_df = get_invoice_history()
 
+```
 if followup_df.empty:
-
     st.info(
         "There are no saved invoices requiring follow-up."
     )
 
 else:
-
     debt_df = followup_df[
         followup_df["balance"] > 0
     ].copy()
 
     if debt_df.empty:
-
         st.success(
             "No outstanding customer debts."
         )
 
     else:
-
         st.warning(
             f"{len(debt_df)} invoice(s) "
             "have outstanding balances."
         )
 
         for _, row in debt_df.iterrows():
-
             st.write(
                 f"**{row['customer_name']}** — "
                 f"Invoice {row['invoice_number']} — "
@@ -1951,14 +1829,11 @@ else:
 ```
 
 except Exception as error:
-
-```
 st.error(
-    "Follow-up section error: "
-    f"{type(error).__name__}: "
-    f"{error}"
+"Follow-up section error: "
+f"{type(error).**name**}: "
+f"{error}"
 )
-```
 
 # ============================================================
 
