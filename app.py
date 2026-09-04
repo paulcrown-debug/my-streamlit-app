@@ -11,10 +11,12 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from openai import OpenAI
+
 from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.platypus import (
 SimpleDocTemplate,
 Paragraph,
@@ -22,13 +24,6 @@ Spacer,
 Table,
 TableStyle,
 )
-
-# OpenAI is optional until the AI assistant is used.
-
-try:
-from openai import OpenAI
-except ImportError:
-OpenAI = None
 
 # ============================================================
 
@@ -129,6 +124,7 @@ df = pd.read_sql_query(
 )
 
 conn.close()
+
 return df
 ```
 
@@ -159,33 +155,38 @@ cleaned = []
 
 ```
 for item in items:
-    description = safe_text(item.get("description", "")).strip()
+    description = safe_text(
+        item.get("description", "")
+    ).strip()
 
     if not description:
         continue
 
     try:
-        quantity = float(item.get("quantity", 1))
+        quantity = float(
+            item.get("quantity", 1)
+        )
     except (ValueError, TypeError):
-        quantity = 1
+        quantity = 1.0
 
     try:
-        price = float(item.get("price", 0))
+        price = float(
+            item.get("price", 0)
+        )
     except (ValueError, TypeError):
-        price = 0
+        price = 0.0
 
     if quantity < 0:
-        quantity = 0
+        quantity = 0.0
 
     if price < 0:
-        price = 0
+        price = 0.0
 
     cleaned.append(
         {
             "description": description,
             "quantity": quantity,
             "price": price,
-            "amount": quantity * price,
         }
     )
 
@@ -193,18 +194,24 @@ return cleaned
 ```
 
 def calculate_subtotal(items):
-total = 0
+subtotal = 0.0
 
 ```
 for item in items:
     try:
-        total += float(item.get("quantity", 0)) * float(
+        quantity = float(
+            item.get("quantity", 0)
+        )
+        price = float(
             item.get("price", 0)
         )
-    except (ValueError, TypeError):
-        pass
 
-return total
+        subtotal += quantity * price
+
+    except (ValueError, TypeError):
+        continue
+
+return subtotal
 ```
 
 # ============================================================
@@ -221,6 +228,7 @@ return st.secrets["OPENAI_API_KEY"]
 ```
     if "OPENAI_KEY" in st.secrets:
         return st.secrets["OPENAI_KEY"]
+
 except Exception:
     pass
 
@@ -250,12 +258,11 @@ tax_rate,
 amount_paid,
 notes,
 payment_url="",
-logo_bytes=None,
 ):
 buffer = io.BytesIO()
 
 ```
-doc = SimpleDocTemplate(
+document = SimpleDocTemplate(
     buffer,
     pagesize=letter,
     rightMargin=36,
@@ -266,8 +273,23 @@ doc = SimpleDocTemplate(
 
 styles = getSampleStyleSheet()
 
+normal_style = ParagraphStyle(
+    "NormalInvoice",
+    parent=styles["Normal"],
+    fontSize=9,
+    leading=12,
+)
+
+heading_style = ParagraphStyle(
+    "HeadingInvoice",
+    parent=styles["Heading2"],
+    fontSize=12,
+    leading=15,
+    spaceAfter=6,
+)
+
 title_style = ParagraphStyle(
-    "InvoiceTitle",
+    "TitleInvoice",
     parent=styles["Heading1"],
     alignment=TA_CENTER,
     fontSize=22,
@@ -275,28 +297,14 @@ title_style = ParagraphStyle(
     spaceAfter=12,
 )
 
-heading_style = ParagraphStyle(
-    "InvoiceHeading",
-    parent=styles["Heading2"],
-    fontSize=12,
-    leading=15,
-    spaceAfter=6,
-)
-
-normal_style = ParagraphStyle(
-    "InvoiceNormal",
-    parent=styles["Normal"],
-    fontSize=9,
-    leading=12,
-)
-
 story = []
 
-# Business information
-business_lines = []
+# --------------------------------------------------------
+# BUSINESS INFORMATION
+# --------------------------------------------------------
 
 if business_name:
-    business_lines.append(
+    story.append(
         Paragraph(
             f"<b>{safe_text(business_name)}</b>",
             styles["Heading2"],
@@ -304,7 +312,7 @@ if business_name:
     )
 
 if business_address:
-    business_lines.append(
+    story.append(
         Paragraph(
             safe_text(business_address),
             normal_style,
@@ -312,7 +320,7 @@ if business_address:
     )
 
 if business_phone:
-    business_lines.append(
+    story.append(
         Paragraph(
             f"Phone: {safe_text(business_phone)}",
             normal_style,
@@ -320,16 +328,12 @@ if business_phone:
     )
 
 if business_email:
-    business_lines.append(
+    story.append(
         Paragraph(
             f"Email: {safe_text(business_email)}",
             normal_style,
         )
     )
-
-if business_lines:
-    for line in business_lines:
-        story.append(line)
 
 story.append(Spacer(1, 12))
 
@@ -340,19 +344,40 @@ story.append(
     )
 )
 
-# Invoice details
+# --------------------------------------------------------
+# INVOICE DETAILS
+# --------------------------------------------------------
+
 invoice_details = [
     [
-        Paragraph("<b>Invoice Number</b>", normal_style),
-        Paragraph(safe_text(invoice_number), normal_style),
+        Paragraph(
+            "<b>Invoice Number</b>",
+            normal_style,
+        ),
+        Paragraph(
+            safe_text(invoice_number),
+            normal_style,
+        ),
     ],
     [
-        Paragraph("<b>Invoice Date</b>", normal_style),
-        Paragraph(safe_text(invoice_date), normal_style),
+        Paragraph(
+            "<b>Invoice Date</b>",
+            normal_style,
+        ),
+        Paragraph(
+            safe_text(invoice_date),
+            normal_style,
+        ),
     ],
     [
-        Paragraph("<b>Due Date</b>", normal_style),
-        Paragraph(safe_text(due_date), normal_style),
+        Paragraph(
+            "<b>Due Date</b>",
+            normal_style,
+        ),
+        Paragraph(
+            safe_text(due_date),
+            normal_style,
+        ),
     ],
 ]
 
@@ -364,13 +389,49 @@ details_table = Table(
 details_table.setStyle(
     TableStyle(
         [
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("BACKGROUND", (0, 0), (0, -1), colors.lightgrey),
-            ("LEFTPADDING", (0, 0), (-1, -1), 6),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            (
+                "GRID",
+                (0, 0),
+                (-1, -1),
+                0.5,
+                colors.grey,
+            ),
+            (
+                "BACKGROUND",
+                (0, 0),
+                (0, -1),
+                colors.lightgrey,
+            ),
+            (
+                "VALIGN",
+                (0, 0),
+                (-1, -1),
+                "TOP",
+            ),
+            (
+                "LEFTPADDING",
+                (0, 0),
+                (-1, -1),
+                6,
+            ),
+            (
+                "RIGHTPADDING",
+                (0, 0),
+                (-1, -1),
+                6,
+            ),
+            (
+                "TOPPADDING",
+                (0, 0),
+                (-1, -1),
+                6,
+            ),
+            (
+                "BOTTOMPADDING",
+                (0, 0),
+                (-1, -1),
+                6,
+            ),
         ]
     )
 )
@@ -378,7 +439,10 @@ details_table.setStyle(
 story.append(details_table)
 story.append(Spacer(1, 16))
 
-# Customer
+# --------------------------------------------------------
+# CUSTOMER
+# --------------------------------------------------------
+
 story.append(
     Paragraph(
         "BILL TO",
@@ -386,10 +450,8 @@ story.append(
     )
 )
 
-customer_lines = []
-
 if customer_name:
-    customer_lines.append(
+    story.append(
         Paragraph(
             f"<b>{safe_text(customer_name)}</b>",
             normal_style,
@@ -397,7 +459,7 @@ if customer_name:
     )
 
 if customer_email:
-    customer_lines.append(
+    story.append(
         Paragraph(
             f"Email: {safe_text(customer_email)}",
             normal_style,
@@ -405,7 +467,7 @@ if customer_email:
     )
 
 if customer_phone:
-    customer_lines.append(
+    story.append(
         Paragraph(
             f"Phone: {safe_text(customer_phone)}",
             normal_style,
@@ -413,60 +475,139 @@ if customer_phone:
     )
 
 if customer_address:
-    customer_lines.append(
+    story.append(
         Paragraph(
             safe_text(customer_address),
             normal_style,
         )
     )
 
-for line in customer_lines:
-    story.append(line)
-
 story.append(Spacer(1, 16))
 
-# Items
+# --------------------------------------------------------
+# ITEMS
+# --------------------------------------------------------
+
 table_data = [
     [
-        Paragraph("<b>Description</b>", normal_style),
-        Paragraph("<b>Qty</b>", normal_style),
-        Paragraph("<b>Unit Price</b>", normal_style),
-        Paragraph("<b>Amount</b>", normal_style),
+        Paragraph(
+            "<b>Description</b>",
+            normal_style,
+        ),
+        Paragraph(
+            "<b>Qty</b>",
+            normal_style,
+        ),
+        Paragraph(
+            "<b>Unit Price</b>",
+            normal_style,
+        ),
+        Paragraph(
+            "<b>Amount</b>",
+            normal_style,
+        ),
     ]
 ]
 
 for item in items:
-    description = safe_text(item.get("description", ""))
-    quantity = float(item.get("quantity", 0))
-    price = float(item.get("price", 0))
+    description = safe_text(
+        item.get("description", "")
+    )
+
+    quantity = float(
+        item.get("quantity", 0)
+    )
+
+    price = float(
+        item.get("price", 0)
+    )
+
     amount = quantity * price
 
     table_data.append(
         [
-            Paragraph(description, normal_style),
-            Paragraph(f"{quantity:g}", normal_style),
-            Paragraph(format_currency(price), normal_style),
-            Paragraph(format_currency(amount), normal_style),
+            Paragraph(
+                description,
+                normal_style,
+            ),
+            Paragraph(
+                f"{quantity:g}",
+                normal_style,
+            ),
+            Paragraph(
+                format_currency(price),
+                normal_style,
+            ),
+            Paragraph(
+                format_currency(amount),
+                normal_style,
+            ),
         ]
     )
 
 items_table = Table(
     table_data,
-    colWidths=[250, 55, 100, 100],
+    colWidths=[
+        250,
+        55,
+        100,
+        100,
+    ],
     repeatRows=1,
 )
 
 items_table.setStyle(
     TableStyle(
         [
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-            ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 6),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            (
+                "GRID",
+                (0, 0),
+                (-1, -1),
+                0.5,
+                colors.grey,
+            ),
+            (
+                "BACKGROUND",
+                (0, 0),
+                (-1, 0),
+                colors.lightgrey,
+            ),
+            (
+                "ALIGN",
+                (1, 1),
+                (-1, -1),
+                "RIGHT",
+            ),
+            (
+                "VALIGN",
+                (0, 0),
+                (-1, -1),
+                "TOP",
+            ),
+            (
+                "LEFTPADDING",
+                (0, 0),
+                (-1, -1),
+                6,
+            ),
+            (
+                "RIGHTPADDING",
+                (0, 0),
+                (-1, -1),
+                6,
+            ),
+            (
+                "TOPPADDING",
+                (0, 0),
+                (-1, -1),
+                6,
+            ),
+            (
+                "BOTTOMPADDING",
+                (0, 0),
+                (-1, -1),
+                6,
+            ),
         ]
     )
 )
@@ -474,29 +615,56 @@ items_table.setStyle(
 story.append(items_table)
 story.append(Spacer(1, 16))
 
+# --------------------------------------------------------
+# TOTALS
+# --------------------------------------------------------
+
 subtotal = calculate_subtotal(items)
 
 try:
     tax_rate_value = float(tax_rate)
 except (ValueError, TypeError):
-    tax_rate_value = 0
+    tax_rate_value = 0.0
 
-tax_amount = subtotal * tax_rate_value / 100
-total = subtotal + tax_amount
+tax_amount = (
+    subtotal * tax_rate_value / 100
+)
+
+total_amount = (
+    subtotal + tax_amount
+)
 
 try:
-    paid = float(amount_paid)
+    paid_amount = float(amount_paid)
 except (ValueError, TypeError):
-    paid = 0
+    paid_amount = 0.0
 
-balance = max(total - paid, 0)
+balance = max(
+    total_amount - paid_amount,
+    0.0,
+)
 
 summary_data = [
-    ["Subtotal", format_currency(subtotal)],
-    [f"Tax ({tax_rate_value:g}%)", format_currency(tax_amount)],
-    ["Total", format_currency(total)],
-    ["Amount Paid", format_currency(paid)],
-    ["Balance Due", format_currency(balance)],
+    [
+        "Subtotal",
+        format_currency(subtotal),
+    ],
+    [
+        f"Tax ({tax_rate_value:g}%)",
+        format_currency(tax_amount),
+    ],
+    [
+        "Total",
+        format_currency(total_amount),
+    ],
+    [
+        "Amount Paid",
+        format_currency(paid_amount),
+    ],
+    [
+        "Balance Due",
+        format_currency(balance),
+    ],
 ]
 
 summary_table = Table(
@@ -508,16 +676,67 @@ summary_table = Table(
 summary_table.setStyle(
     TableStyle(
         [
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 6),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ("BACKGROUND", (0, 2), (-1, 2), colors.lightgrey),
-            ("BACKGROUND", (0, 4), (-1, 4), colors.lightgrey),
-            ("FONTNAME", (0, 2), (-1, 2), "Helvetica-Bold"),
-            ("FONTNAME", (0, 4), (-1, 4), "Helvetica-Bold"),
+            (
+                "GRID",
+                (0, 0),
+                (-1, -1),
+                0.5,
+                colors.grey,
+            ),
+            (
+                "ALIGN",
+                (1, 0),
+                (1, -1),
+                "RIGHT",
+            ),
+            (
+                "BACKGROUND",
+                (0, 2),
+                (-1, 2),
+                colors.lightgrey,
+            ),
+            (
+                "BACKGROUND",
+                (0, 4),
+                (-1, 4),
+                colors.lightgrey,
+            ),
+            (
+                "FONTNAME",
+                (0, 2),
+                (-1, 2),
+                "Helvetica-Bold",
+            ),
+            (
+                "FONTNAME",
+                (0, 4),
+                (-1, 4),
+                "Helvetica-Bold",
+            ),
+            (
+                "LEFTPADDING",
+                (0, 0),
+                (-1, -1),
+                6,
+            ),
+            (
+                "RIGHTPADDING",
+                (0, 0),
+                (-1, -1),
+                6,
+            ),
+            (
+                "TOPPADDING",
+                (0, 0),
+                (-1, -1),
+                6,
+            ),
+            (
+                "BOTTOMPADDING",
+                (0, 0),
+                (-1, -1),
+                6,
+            ),
         ]
     )
 )
@@ -525,28 +744,42 @@ summary_table.setStyle(
 story.append(summary_table)
 story.append(Spacer(1, 18))
 
+# --------------------------------------------------------
+# NOTES
+# --------------------------------------------------------
+
 if notes:
     story.append(
         Paragraph(
-            "<b>Notes</b>",
+            "Notes",
             heading_style,
         )
     )
+
     story.append(
         Paragraph(
-            safe_text(notes).replace("\n", "<br/>"),
+            safe_text(notes).replace(
+                "\n",
+                "<br/>",
+            ),
             normal_style,
         )
     )
+
     story.append(Spacer(1, 12))
+
+# --------------------------------------------------------
+# PAYMENT LINK
+# --------------------------------------------------------
 
 if payment_url:
     story.append(
         Paragraph(
-            "<b>Payment Link</b>",
+            "Payment Link",
             heading_style,
         )
     )
+
     story.append(
         Paragraph(
             safe_text(payment_url),
@@ -554,29 +787,36 @@ if payment_url:
         )
     )
 
-story.append(Spacer(1, 18))
+    story.append(Spacer(1, 12))
+
+# --------------------------------------------------------
+# FOOTER
+# --------------------------------------------------------
+
+footer_style = ParagraphStyle(
+    "FooterInvoice",
+    parent=normal_style,
+    alignment=TA_CENTER,
+    fontSize=9,
+)
 
 story.append(
     Paragraph(
         "Thank you for your business.",
-        ParagraphStyle(
-            "Footer",
-            parent=normal_style,
-            alignment=TA_CENTER,
-            fontSize=9,
-        ),
+        footer_style,
     )
 )
 
-doc.build(story)
+document.build(story)
 
 buffer.seek(0)
+
 return buffer.getvalue()
 ```
 
 # ============================================================
 
-# EMAIL
+# SEND EMAIL
 
 # ============================================================
 
@@ -588,31 +828,42 @@ invoice_number,
 pdf_bytes,
 customer_name,
 ):
-if not sender_email or not app_password:
+if not sender_email:
 raise ValueError(
-"Gmail sender email and app password are required."
+"Gmail sender email is required."
 )
 
 ```
+if not app_password:
+    raise ValueError(
+        "Gmail App Password is required."
+    )
+
 if not recipient_email:
     raise ValueError(
-        "Customer email address is required."
+        "Customer email is required."
     )
 
 message = MIMEMultipart()
 
 message["From"] = sender_email
 message["To"] = recipient_email
-message["Subject"] = f"Invoice {invoice_number}"
+message["Subject"] = (
+    f"Invoice {invoice_number}"
+)
 
 body = (
     f"Dear {customer_name or 'Customer'},\n\n"
-    f"Please find attached your invoice {invoice_number}.\n\n"
+    f"Please find attached invoice "
+    f"{invoice_number}.\n\n"
     "Thank you for your business."
 )
 
 message.attach(
-    MIMEText(body, "plain")
+    MIMEText(
+        body,
+        "plain",
+    )
 )
 
 attachment = MIMEApplication(
@@ -632,12 +883,15 @@ with smtplib.SMTP_SSL(
     "smtp.gmail.com",
     465,
 ) as server:
+
     server.login(
         sender_email,
         app_password,
     )
 
-    server.send_message(message)
+    server.send_message(
+        message
+    )
 ```
 
 # ============================================================
@@ -646,8 +900,8 @@ with smtplib.SMTP_SSL(
 
 # ============================================================
 
-if "items" not in st.session_state:
-st.session_state["items"] = [
+if "invoice_items" not in st.session_state:
+st.session_state["invoice_items"] = [
 {
 "description": "Consulting Service",
 "quantity": 1.0,
@@ -672,7 +926,9 @@ st.session_state["generated_ai_message"] = ""
 
 # ============================================================
 
-st.sidebar.title("⚙️ Business Settings")
+st.sidebar.title(
+"⚙️ Business Settings"
+)
 
 business_name = st.sidebar.text_input(
 "Business Name",
@@ -694,24 +950,31 @@ business_email = st.sidebar.text_input(
 value="",
 )
 
-logo_file = st.sidebar.file_uploader(
+st.sidebar.file_uploader(
 "Business Logo",
-type=["png", "jpg", "jpeg"],
+type=[
+"png",
+"jpg",
+"jpeg",
+],
 )
 
 st.sidebar.markdown("---")
 
-st.sidebar.subheader("💳 Payment Settings")
+st.sidebar.subheader(
+"💳 Payment Settings"
+)
 
 payment_url = st.sidebar.text_input(
 "Paystack Payment Link",
 value="",
-help="Paste your Paystack payment link here.",
 )
 
 st.sidebar.markdown("---")
 
-st.sidebar.subheader("📧 Gmail Settings")
+st.sidebar.subheader(
+"📧 Gmail Settings"
+)
 
 gmail_sender = st.sidebar.text_input(
 "Gmail Address",
@@ -724,23 +987,20 @@ value="",
 type="password",
 )
 
-st.sidebar.markdown("---")
+# ============================================================
 
-st.sidebar.info(
-"Use a Gmail App Password when sending invoices through Gmail."
+# MAIN HEADER
+
+# ============================================================
+
+st.title(
+"🧾 AI Smart Invoicer & Debt Collector"
 )
 
-# ============================================================
-
-# HEADER
-
-# ============================================================
-
-st.title("🧾 AI Smart Invoicer & Debt Collector")
-
 st.write(
-"Create professional invoices, track payments, monitor debts, "
-"send invoices by email, and generate AI-powered customer messages."
+"Create professional invoices, track payments, "
+"monitor customer debts, send invoices by email, "
+"and generate AI-powered customer messages."
 )
 
 # ============================================================
@@ -759,18 +1019,21 @@ tab1, tab2, tab3 = st.tabs(
 
 # ============================================================
 
-# CREATE INVOICE
+# CREATE INVOICE TAB
 
 # ============================================================
 
 with tab1:
 
 ```
-st.subheader("Customer Information")
+st.subheader(
+    "Customer Information"
+)
 
 col1, col2 = st.columns(2)
 
 with col1:
+
     customer_name = st.text_input(
         "Customer Name"
     )
@@ -784,13 +1047,17 @@ with col1:
     )
 
 with col2:
+
     customer_address = st.text_area(
         "Customer Address"
     )
 
     invoice_number = st.text_input(
         "Invoice Number",
-        value=f"INV-{date.today().strftime('%Y%m%d')}",
+        value=(
+            f"INV-"
+            f"{date.today().strftime('%Y%m%d')}"
+        ),
     )
 
     invoice_date = st.date_input(
@@ -805,62 +1072,78 @@ with col2:
 
 st.markdown("---")
 
-st.subheader("Invoice Items")
+st.subheader(
+    "Invoice Items"
+)
 
 updated_items = []
 
 for index, item in enumerate(
-    st.session_state["items"]
+    st.session_state["invoice_items"]
 ):
+
     col1, col2, col3, col4 = st.columns(
         [4, 1.5, 2, 1]
     )
 
     with col1:
+
         description = st.text_input(
             "Description",
             value=item.get(
                 "description",
                 "",
             ),
-            key=f"description_{index}",
+            key=(
+                f"item_description_{index}"
+            ),
         )
 
     with col2:
+
         quantity = st.number_input(
             "Quantity",
             min_value=0.0,
             value=float(
                 item.get(
                     "quantity",
-                    1,
+                    1.0,
                 )
             ),
             step=1.0,
-            key=f"quantity_{index}",
+            key=(
+                f"item_quantity_{index}"
+            ),
         )
 
     with col3:
+
         price = st.number_input(
             "Unit Price",
             min_value=0.0,
             value=float(
                 item.get(
                     "price",
-                    0,
+                    0.0,
                 )
             ),
             step=100.0,
-            key=f"price_{index}",
+            key=(
+                f"item_price_{index}"
+            ),
         )
 
     with col4:
+
         remove_item = st.checkbox(
             "Remove",
-            key=f"remove_{index}",
+            key=(
+                f"remove_item_{index}"
+            ),
         )
 
     if not remove_item:
+
         updated_items.append(
             {
                 "description": description,
@@ -869,13 +1152,17 @@ for index, item in enumerate(
             }
         )
 
-st.session_state["items"] = updated_items
+st.session_state[
+    "invoice_items"
+] = updated_items
 
 if st.button(
-    "➕ Add Another Item",
-    use_container_width=False,
+    "➕ Add Another Item"
 ):
-    st.session_state["items"].append(
+
+    st.session_state[
+        "invoice_items"
+    ].append(
         {
             "description": "",
             "quantity": 1.0,
@@ -886,7 +1173,9 @@ if st.button(
     st.rerun()
 
 items = clean_items(
-    st.session_state["items"]
+    st.session_state[
+        "invoice_items"
+    ]
 )
 
 if not items:
@@ -896,38 +1185,61 @@ if not items:
 
 st.markdown("---")
 
-st.subheader("Invoice Summary")
+st.subheader(
+    "Invoice Summary"
+)
+
+tax_rate = st.number_input(
+    "Tax Rate (%)",
+    min_value=0.0,
+    max_value=100.0,
+    value=0.0,
+    step=0.5,
+)
+
+subtotal = calculate_subtotal(
+    items
+)
+
+tax_amount = (
+    subtotal * tax_rate / 100
+)
+
+total_amount = (
+    subtotal + tax_amount
+)
 
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    tax_rate = st.number_input(
-        "Tax Rate (%)",
-        min_value=0.0,
-        max_value=100.0,
-        value=0.0,
-        step=0.5,
+    st.metric(
+        "Subtotal",
+        format_currency(
+            subtotal
+        ),
     )
-
-subtotal = calculate_subtotal(items)
-tax_amount = subtotal * tax_rate / 100
-total_amount = subtotal + tax_amount
 
 with col2:
     st.metric(
-        "Subtotal",
-        format_currency(subtotal),
+        "Tax",
+        format_currency(
+            tax_amount
+        ),
     )
 
 with col3:
     st.metric(
         "Total",
-        format_currency(total_amount),
+        format_currency(
+            total_amount
+        ),
     )
 
 st.markdown("---")
 
-st.subheader("Payment Status")
+st.subheader(
+    "Payment Status"
+)
 
 payment_status = st.selectbox(
     "Payment Status",
@@ -939,60 +1251,81 @@ payment_status = st.selectbox(
 )
 
 if payment_status == "Paid":
+
     amount_paid = total_amount
 
 elif payment_status == "Partially Paid":
+
     amount_paid = st.number_input(
         "Amount Paid",
         min_value=0.0,
-        max_value=float(total_amount),
+        max_value=float(
+            total_amount
+        ),
         value=0.0,
         step=100.0,
     )
 
 else:
+
     amount_paid = 0.0
 
 balance = max(
     total_amount - amount_paid,
-    0,
+    0.0,
 )
 
 col1, col2 = st.columns(2)
 
 with col1:
+
     st.metric(
         "Amount Paid",
-        format_currency(amount_paid),
+        format_currency(
+            amount_paid
+        ),
     )
 
 with col2:
+
     st.metric(
         "Balance Due",
-        format_currency(balance),
+        format_currency(
+            balance
+        ),
     )
 
 st.markdown("---")
 
 notes = st.text_area(
     "Invoice Notes",
-    placeholder="Additional notes for the customer...",
+    placeholder=(
+        "Additional notes for the customer..."
+    ),
 )
 
 st.markdown("---")
 
-st.subheader("🔔 Customer Reminder")
+st.subheader(
+    "🔔 Customer Reminder"
+)
 
 if balance > 0:
+
     reminder_message = (
-        f"Dear {customer_name or 'Customer'}, "
-        f"this is a friendly reminder that invoice "
-        f"{invoice_number} has an outstanding balance of "
+        f"Dear "
+        f"{customer_name or 'Customer'}, "
+        f"this is a friendly reminder that "
+        f"invoice {invoice_number} has an "
+        f"outstanding balance of "
         f"{format_currency(balance)}."
     )
+
 else:
+
     reminder_message = (
-        f"Dear {customer_name or 'Customer'}, "
+        f"Dear "
+        f"{customer_name or 'Customer'}, "
         f"thank you for settling invoice "
         f"{invoice_number}."
     )
@@ -1005,32 +1338,31 @@ st.text_area(
 
 st.markdown("---")
 
-st.subheader("📄 Generate Invoice")
+# --------------------------------------------------------
+# GENERATE PDF
+# --------------------------------------------------------
 
-generate_pdf_clicked = st.button(
+if st.button(
     "📄 Generate PDF Invoice",
     type="primary",
     use_container_width=True,
-)
-
-if generate_pdf_clicked:
+):
 
     if not customer_name.strip():
+
         st.error(
             "Please enter the customer name."
         )
 
     elif not items:
+
         st.error(
             "Please add at least one valid invoice item."
         )
 
     else:
-        try:
-            logo_bytes = None
 
-            if logo_file is not None:
-                logo_bytes = logo_file.getvalue()
+        try:
 
             pdf_bytes = generate_pdf_invoice(
                 business_name=business_name,
@@ -1042,14 +1374,17 @@ if generate_pdf_clicked:
                 customer_phone=customer_phone,
                 customer_address=customer_address,
                 invoice_number=invoice_number,
-                invoice_date=str(invoice_date),
-                due_date=str(due_date),
+                invoice_date=str(
+                    invoice_date
+                ),
+                due_date=str(
+                    due_date
+                ),
                 items=items,
                 tax_rate=tax_rate,
                 amount_paid=amount_paid,
                 notes=notes,
                 payment_url=payment_url,
-                logo_bytes=logo_bytes,
             )
 
             st.session_state[
@@ -1060,28 +1395,39 @@ if generate_pdf_clicked:
                 "PDF invoice generated successfully."
             )
 
-        except Exception as e:
+        except Exception as error:
+
             st.session_state[
                 "generated_pdf"
             ] = None
 
             st.error(
-                f"PDF generation failed: {type(e).__name__}: {e}"
+                "PDF generation failed: "
+                f"{type(error).__name__}: "
+                f"{error}"
             )
 
-if st.session_state["generated_pdf"]:
+if st.session_state[
+    "generated_pdf"
+]:
 
     st.download_button(
         label="⬇️ Download PDF Invoice",
-        data=st.session_state["generated_pdf"],
-        file_name=f"{invoice_number}.pdf",
+        data=st.session_state[
+            "generated_pdf"
+        ],
+        file_name=(
+            f"{invoice_number}.pdf"
+        ),
         mime="application/pdf",
         use_container_width=True,
     )
 
 st.markdown("---")
 
-st.subheader("💾 Save Invoice")
+# --------------------------------------------------------
+# SAVE INVOICE
+# --------------------------------------------------------
 
 if st.button(
     "💾 Save Invoice to Database",
@@ -1089,30 +1435,40 @@ if st.button(
 ):
 
     if not customer_name.strip():
+
         st.error(
-            "Please enter the customer name before saving."
+            "Please enter the customer name."
         )
 
     elif not items:
+
         st.error(
-            "Please add at least one invoice item."
+            "Please add at least one valid invoice item."
         )
 
     else:
 
         if balance <= 0:
+
             status = "Paid"
+
         elif amount_paid > 0:
+
             status = "Partially Paid"
+
         else:
+
             status = "Unpaid"
 
         try:
+
             save_invoice_to_db(
                 invoice_number=invoice_number,
                 customer_name=customer_name,
                 customer_email=customer_email,
-                invoice_date=str(invoice_date),
+                invoice_date=str(
+                    invoice_date
+                ),
                 total_amount=total_amount,
                 amount_paid=amount_paid,
                 balance=balance,
@@ -1123,42 +1479,55 @@ if st.button(
                 "Invoice saved successfully."
             )
 
-        except Exception as e:
+        except Exception as error:
+
             st.error(
-                f"Could not save invoice: {type(e).__name__}: {e}"
+                "Could not save invoice: "
+                f"{type(error).__name__}: "
+                f"{error}"
             )
 
 st.markdown("---")
 
-st.subheader("📧 Send Invoice by Email")
+# --------------------------------------------------------
+# EMAIL INVOICE
+# --------------------------------------------------------
 
 if st.button(
     "📧 Send Invoice by Email",
     use_container_width=True,
 ):
 
-    if not st.session_state["generated_pdf"]:
+    if not st.session_state[
+        "generated_pdf"
+    ]:
+
         st.error(
             "Generate the PDF invoice first."
         )
 
     elif not customer_email.strip():
+
         st.error(
             "Please enter the customer's email address."
         )
 
     elif not gmail_sender.strip():
+
         st.error(
             "Please enter your Gmail address in the sidebar."
         )
 
     elif not gmail_app_password.strip():
+
         st.error(
             "Please enter your Gmail App Password in the sidebar."
         )
 
     else:
+
         try:
+
             send_invoice_email(
                 sender_email=gmail_sender,
                 app_password=gmail_app_password,
@@ -1174,47 +1543,64 @@ if st.button(
                 "Invoice email sent successfully."
             )
 
-        except Exception as e:
+        except Exception as error:
+
             st.error(
-                f"Email sending failed: {type(e).__name__}: {e}"
+                "Email sending failed: "
+                f"{type(error).__name__}: "
+                f"{error}"
             )
 ```
 
 # ============================================================
 
-# INVOICE HISTORY
+# INVOICE HISTORY TAB
 
 # ============================================================
 
 with tab2:
 
 ```
-st.subheader("📚 Invoice History")
+st.subheader(
+    "📚 Invoice History"
+)
 
 try:
+
     history_df = get_invoice_history()
 
     if history_df.empty:
+
         st.info(
             "No invoices have been saved yet."
         )
 
     else:
+
         display_df = history_df.copy()
 
-        display_df["total_amount"] = (
-            display_df["total_amount"]
-            .apply(format_currency)
+        display_df[
+            "total_amount"
+        ] = display_df[
+            "total_amount"
+        ].apply(
+            format_currency
         )
 
-        display_df["amount_paid"] = (
-            display_df["amount_paid"]
-            .apply(format_currency)
+        display_df[
+            "amount_paid"
+        ] = display_df[
+            "amount_paid"
+        ].apply(
+            format_currency
         )
 
-        display_df["balance"] = (
-            display_df["balance"]
-            .apply(format_currency)
+        display_df[
+            "balance"
+        ] = display_df[
+            "balance"
+        ].apply(
+            format_currency
         )
 
         st.dataframe(
@@ -1223,27 +1609,34 @@ try:
             hide_index=True,
         )
 
-except Exception as e:
+except Exception as error:
+
     st.error(
-        f"Could not load invoice history: {type(e).__name__}: {e}"
+        "Could not load invoice history: "
+        f"{type(error).__name__}: "
+        f"{error}"
     )
 ```
 
 # ============================================================
 
-# ANALYTICS DASHBOARD
+# ANALYTICS TAB
 
 # ============================================================
 
 with tab3:
 
 ```
-st.subheader("📊 Analytics Dashboard")
+st.subheader(
+    "📊 Analytics Dashboard"
+)
 
 try:
+
     analytics_df = get_invoice_history()
 
     if analytics_df.empty:
+
         st.info(
             "Save some invoices first to see analytics."
         )
@@ -1269,24 +1662,34 @@ try:
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
+
             st.metric(
                 "Total Invoiced",
-                format_currency(total_invoiced),
+                format_currency(
+                    total_invoiced
+                ),
             )
 
         with col2:
+
             st.metric(
                 "Total Collected",
-                format_currency(total_collected),
+                format_currency(
+                    total_collected
+                ),
             )
 
         with col3:
+
             st.metric(
                 "Outstanding Debt",
-                format_currency(total_debt),
+                format_currency(
+                    total_debt
+                ),
             )
 
         with col4:
+
             st.metric(
                 "Number of Invoices",
                 invoice_count,
@@ -1294,7 +1697,6 @@ try:
 
         st.markdown("---")
 
-        # Payment chart
         chart_data = pd.DataFrame(
             {
                 "Category": [
@@ -1312,7 +1714,9 @@ try:
             chart_data,
             names="Category",
             values="Amount",
-            title="Collected vs Outstanding",
+            title=(
+                "Collected vs Outstanding"
+            ),
         )
 
         st.plotly_chart(
@@ -1320,9 +1724,10 @@ try:
             use_container_width=True,
         )
 
-        # Status chart
         status_data = (
-            analytics_df["status"]
+            analytics_df[
+                "status"
+            ]
             .value_counts()
             .reset_index()
         )
@@ -1344,9 +1749,12 @@ try:
             use_container_width=True,
         )
 
-except Exception as e:
+except Exception as error:
+
     st.error(
-        f"Analytics error: {type(e).__name__}: {e}"
+        "Analytics error: "
+        f"{type(error).__name__}: "
+        f"{error}"
     )
 ```
 
@@ -1358,7 +1766,9 @@ except Exception as e:
 
 st.markdown("---")
 
-st.header("🤖 AI Message Assistant")
+st.header(
+"🤖 AI Message Assistant"
+)
 
 st.write(
 "Generate professional customer messages using AI."
@@ -1367,34 +1777,40 @@ st.write(
 ai_request = st.text_area(
 "What message do you want to generate?",
 placeholder=(
-"Example: Write a polite reminder to a customer "
-"who has an overdue invoice."
+"Example: Write a polite reminder to "
+"a customer who has an overdue invoice."
 ),
 )
 
 col1, col2 = st.columns(2)
 
 with col1:
+
+```
 ai_tone = st.selectbox(
-"Tone",
-[
-"Professional",
-"Friendly",
-"Polite",
-"Firm",
-"Short",
-],
+    "Tone",
+    [
+        "Professional",
+        "Friendly",
+        "Polite",
+        "Firm",
+        "Short",
+    ],
 )
+```
 
 with col2:
+
+```
 ai_format = st.selectbox(
-"Format",
-[
-"Email",
-"WhatsApp Message",
-"SMS",
-],
+    "Format",
+    [
+        "Email",
+        "WhatsApp Message",
+        "SMS",
+    ],
 )
+```
 
 if st.button(
 "🤖 Generate AI Message",
@@ -1403,14 +1819,9 @@ use_container_width=True,
 
 ```
 if not ai_request.strip():
+
     st.warning(
         "Please describe the message you want."
-    )
-
-elif OpenAI is None:
-    st.error(
-        "The OpenAI package is not installed. "
-        "Please check requirements.txt."
     )
 
 else:
@@ -1418,6 +1829,7 @@ else:
     api_key = get_openai_api_key()
 
     if not api_key:
+
         st.error(
             "OpenAI API key not found. "
             "Please check your Streamlit Secrets."
@@ -1426,6 +1838,7 @@ else:
     else:
 
         try:
+
             client = OpenAI(
                 api_key=api_key
             )
@@ -1452,11 +1865,6 @@ Do not add explanations outside the message.
 
             generated_message = (
                 response.output_text
-                if hasattr(
-                    response,
-                    "output_text",
-                )
-                else str(response)
             )
 
             st.session_state[
@@ -1467,9 +1875,12 @@ Do not add explanations outside the message.
                 "AI message generated successfully."
             )
 
-        except Exception as e:
+        except Exception as error:
+
             st.error(
-                f"AI generation failed: {type(e).__name__}: {e}"
+                "AI generation failed: "
+                f"{type(error).__name__}: "
+                f"{error}"
             )
 ```
 
@@ -1495,13 +1906,17 @@ st.text_area(
 
 st.markdown("---")
 
-st.header("📞 Customer Follow-Up")
+st.header(
+"📞 Customer Follow-Up"
+)
 
 try:
-followup_df = get_invoice_history()
 
 ```
+followup_df = get_invoice_history()
+
 if followup_df.empty:
+
     st.info(
         "There are no saved invoices requiring follow-up."
     )
@@ -1513,6 +1928,7 @@ else:
     ].copy()
 
     if debt_df.empty:
+
         st.success(
             "No outstanding customer debts."
         )
@@ -1520,7 +1936,8 @@ else:
     else:
 
         st.warning(
-            f"{len(debt_df)} invoice(s) have outstanding balances."
+            f"{len(debt_df)} invoice(s) "
+            "have outstanding balances."
         )
 
         for _, row in debt_df.iterrows():
@@ -1528,14 +1945,20 @@ else:
             st.write(
                 f"**{row['customer_name']}** — "
                 f"Invoice {row['invoice_number']} — "
-                f"Balance: {format_currency(row['balance'])}"
+                f"Balance: "
+                f"{format_currency(row['balance'])}"
             )
 ```
 
-except Exception as e:
+except Exception as error:
+
+```
 st.error(
-f"Follow-up section error: {type(e).**name**}: {e}"
+    "Follow-up section error: "
+    f"{type(error).__name__}: "
+    f"{error}"
 )
+```
 
 # ============================================================
 
