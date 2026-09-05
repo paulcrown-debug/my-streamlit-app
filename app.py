@@ -1,5 +1,4 @@
 import io
-import os
 import sqlite3
 import smtplib
 import hashlib
@@ -36,6 +35,110 @@ st.set_page_config(
     page_icon="🧾",
     layout="wide",
 )
+
+
+# ============================================================
+# CURRENCY SETTINGS
+# ============================================================
+
+CURRENCIES = {
+    "🇳🇬 Nigerian Naira (NGN)": {
+        "code": "NGN",
+        "symbol": "₦",
+    },
+    "🇺🇸 US Dollar (USD)": {
+        "code": "USD",
+        "symbol": "$",
+    },
+    "🇬🇧 British Pound (GBP)": {
+        "code": "GBP",
+        "symbol": "£",
+    },
+    "🇪🇺 Euro (EUR)": {
+        "code": "EUR",
+        "symbol": "€",
+    },
+    "🇨🇦 Canadian Dollar (CAD)": {
+        "code": "CAD",
+        "symbol": "C$",
+    },
+    "🇦🇺 Australian Dollar (AUD)": {
+        "code": "AUD",
+        "symbol": "A$",
+    },
+    "🇿🇦 South African Rand (ZAR)": {
+        "code": "ZAR",
+        "symbol": "R",
+    },
+    "🇬🇭 Ghanaian Cedi (GHS)": {
+        "code": "GHS",
+        "symbol": "GH₵",
+    },
+    "🇰🇪 Kenyan Shilling (KES)": {
+        "code": "KES",
+        "symbol": "KSh",
+    },
+    "🇮🇳 Indian Rupee (INR)": {
+        "code": "INR",
+        "symbol": "₹",
+    },
+    "🇨🇳 Chinese Yuan (CNY)": {
+        "code": "CNY",
+        "symbol": "¥",
+    },
+    "🇯🇵 Japanese Yen (JPY)": {
+        "code": "JPY",
+        "symbol": "¥",
+    },
+    "🇦🇪 UAE Dirham (AED)": {
+        "code": "AED",
+        "symbol": "د.إ",
+    },
+    "🇸🇦 Saudi Riyal (SAR)": {
+        "code": "SAR",
+        "symbol": "﷼",
+    },
+    "🇳🇿 New Zealand Dollar (NZD)": {
+        "code": "NZD",
+        "symbol": "NZ$",
+    },
+    "🇸🇬 Singapore Dollar (SGD)": {
+        "code": "SGD",
+        "symbol": "S$",
+    },
+    "🇨🇭 Swiss Franc (CHF)": {
+        "code": "CHF",
+        "symbol": "CHF",
+    },
+    "🇳🇴 Norwegian Krone (NOK)": {
+        "code": "NOK",
+        "symbol": "kr",
+    },
+    "🇸🇪 Swedish Krona (SEK)": {
+        "code": "SEK",
+        "symbol": "kr",
+    },
+    "🇧🇷 Brazilian Real (BRL)": {
+        "code": "BRL",
+        "symbol": "R$",
+    },
+}
+
+
+def get_currency_symbol(currency_code):
+    for currency in CURRENCIES.values():
+        if currency["code"] == currency_code:
+            return currency["symbol"]
+
+    return "₦"
+
+
+def format_currency(value, currency_symbol="₦"):
+    try:
+        return f"{currency_symbol}{float(value):,.2f}"
+
+    except (ValueError, TypeError):
+        return f"{currency_symbol}0.00"
 
 
 # ============================================================
@@ -77,10 +180,31 @@ def init_db():
             total_amount REAL,
             amount_paid REAL,
             balance REAL,
-            status TEXT
+            status TEXT,
+            currency_code TEXT DEFAULT 'NGN'
         )
         """
     )
+
+    # Check whether currency_code already exists.
+    # This allows existing databases to continue working.
+    cursor.execute(
+        "PRAGMA table_info(invoices)"
+    )
+
+    columns = [
+        row[1]
+        for row in cursor.fetchall()
+    ]
+
+    if "currency_code" not in columns:
+
+        cursor.execute(
+            """
+            ALTER TABLE invoices
+            ADD COLUMN currency_code TEXT DEFAULT 'NGN'
+            """
+        )
 
     conn.commit()
     conn.close()
@@ -98,6 +222,7 @@ def hash_password(password):
     Create a secure password hash using PBKDF2-HMAC-SHA256.
     A unique random salt is generated for every password.
     """
+
     salt = secrets.token_bytes(16)
 
     password_hash = hashlib.pbkdf2_hmac(
@@ -118,7 +243,9 @@ def verify_password(password, stored_password):
     """
     Verify a password against the stored salted hash.
     """
+
     try:
+
         salt_hex, hash_hex = stored_password.split(":")
 
         salt = bytes.fromhex(salt_hex)
@@ -137,6 +264,7 @@ def verify_password(password, stored_password):
         )
 
     except (ValueError, TypeError):
+
         return False
 
 
@@ -145,6 +273,7 @@ def verify_password(password, stored_password):
 # ============================================================
 
 def create_user(username, password):
+
     username = username.strip()
 
     password_hash = hash_password(password)
@@ -153,6 +282,7 @@ def create_user(username, password):
     cursor = conn.cursor()
 
     try:
+
         cursor.execute(
             """
             INSERT INTO users (
@@ -170,19 +300,28 @@ def create_user(username, password):
         )
 
         conn.commit()
+
         return True, "Account created successfully."
 
     except sqlite3.IntegrityError:
+
         return False, "That username already exists."
 
     except Exception as error:
-        return False, f"Could not create account: {type(error).__name__}: {error}"
+
+        return (
+            False,
+            f"Could not create account: "
+            f"{type(error).__name__}: {error}",
+        )
 
     finally:
+
         conn.close()
 
 
 def authenticate_user(username, password):
+
     username = username.strip()
 
     conn = get_db_connection()
@@ -198,9 +337,11 @@ def authenticate_user(username, password):
     )
 
     user = cursor.fetchone()
+
     conn.close()
 
     if not user:
+
         return False
 
     stored_username, stored_password_hash = user
@@ -260,7 +401,9 @@ def show_authentication_page():
 
     with login_tab:
 
-        st.subheader("🔐 Login to Your Account")
+        st.subheader(
+            "🔐 Login to Your Account"
+        )
 
         login_username = st.text_input(
             "Username",
@@ -280,23 +423,38 @@ def show_authentication_page():
         ):
 
             if not login_username.strip():
-                st.error("Please enter your username.")
+
+                st.error(
+                    "Please enter your username."
+                )
 
             elif not login_password:
-                st.error("Please enter your password.")
+
+                st.error(
+                    "Please enter your password."
+                )
 
             elif authenticate_user(
                 login_username,
                 login_password,
             ):
 
-                st.session_state["authenticated"] = True
-                st.session_state["username"] = login_username.strip()
+                st.session_state[
+                    "authenticated"
+                ] = True
 
-                st.success("Login successful.")
+                st.session_state[
+                    "username"
+                ] = login_username.strip()
+
+                st.success(
+                    "Login successful."
+                )
+
                 st.rerun()
 
             else:
+
                 st.error(
                     "Invalid username or password."
                 )
@@ -307,7 +465,9 @@ def show_authentication_page():
 
     with signup_tab:
 
-        st.subheader("📝 Create a New Account")
+        st.subheader(
+            "📝 Create a New Account"
+        )
 
         signup_username = st.text_input(
             "Choose a Username",
@@ -341,31 +501,37 @@ def show_authentication_page():
             confirm_password = signup_confirm_password
 
             if not username:
+
                 st.error(
                     "Please choose a username."
                 )
 
             elif len(username) < 3:
+
                 st.error(
                     "Username must contain at least 3 characters."
                 )
 
             elif " " in username:
+
                 st.error(
                     "Username cannot contain spaces."
                 )
 
             elif not password:
+
                 st.error(
                     "Please create a password."
                 )
 
             elif len(password) < 8:
+
                 st.error(
                     "Password must contain at least 8 characters."
                 )
 
             elif password != confirm_password:
+
                 st.error(
                     "Passwords do not match."
                 )
@@ -385,6 +551,7 @@ def show_authentication_page():
                     )
 
                 else:
+
                     st.error(message)
 
 
@@ -393,10 +560,17 @@ def show_authentication_page():
 # ============================================================
 
 if "authenticated" not in st.session_state:
-    st.session_state["authenticated"] = False
+
+    st.session_state[
+        "authenticated"
+    ] = False
+
 
 if "username" not in st.session_state:
-    st.session_state["username"] = ""
+
+    st.session_state[
+        "username"
+    ] = ""
 
 
 # ============================================================
@@ -423,6 +597,7 @@ def save_invoice_to_db(
     amount_paid,
     balance,
     status,
+    currency_code,
 ):
 
     conn = get_db_connection()
@@ -438,9 +613,10 @@ def save_invoice_to_db(
             total_amount,
             amount_paid,
             balance,
-            status
+            status,
+            currency_code
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             invoice_number,
@@ -451,6 +627,7 @@ def save_invoice_to_db(
             amount_paid,
             balance,
             status,
+            currency_code,
         ),
     )
 
@@ -475,18 +652,10 @@ def get_invoice_history():
 def safe_text(value):
 
     if value is None:
+
         return ""
 
     return str(value)
-
-
-def format_currency(value):
-
-    try:
-        return f"₦{float(value):,.2f}"
-
-    except (ValueError, TypeError):
-        return "₦0.00"
 
 
 def clean_items(items):
@@ -500,22 +669,27 @@ def clean_items(items):
         ).strip()
 
         if not description:
+
             continue
 
         try:
+
             quantity = float(
                 item.get("quantity", 1)
             )
 
         except (ValueError, TypeError):
+
             quantity = 1.0
 
         try:
+
             price = float(
                 item.get("price", 0)
             )
 
         except (ValueError, TypeError):
+
             price = 0.0
 
         cleaned.append(
@@ -548,6 +722,7 @@ def calculate_subtotal(items):
             subtotal += quantity * price
 
         except (ValueError, TypeError):
+
             pass
 
     return subtotal
@@ -574,6 +749,7 @@ def generate_pdf_invoice(
     amount_paid,
     notes,
     payment_url="",
+    currency_symbol="₦",
 ):
 
     buffer = io.BytesIO()
@@ -615,7 +791,9 @@ def generate_pdf_invoice(
 
     story = []
 
+    # ========================================================
     # BUSINESS INFORMATION
+    # ========================================================
 
     if business_name:
 
@@ -664,7 +842,9 @@ def generate_pdf_invoice(
         )
     )
 
+    # ========================================================
     # INVOICE DETAILS
+    # ========================================================
 
     invoice_details = [
         [
@@ -694,6 +874,16 @@ def generate_pdf_invoice(
             ),
             Paragraph(
                 safe_text(due_date),
+                normal_style,
+            ),
+        ],
+        [
+            Paragraph(
+                "<b>Currency</b>",
+                normal_style,
+            ),
+            Paragraph(
+                safe_text(currency_symbol),
                 normal_style,
             ),
         ],
@@ -760,7 +950,9 @@ def generate_pdf_invoice(
         Spacer(1, 16)
     )
 
+    # ========================================================
     # CUSTOMER
+    # ========================================================
 
     story.append(
         Paragraph(
@@ -809,7 +1001,9 @@ def generate_pdf_invoice(
         Spacer(1, 16)
     )
 
+    # ========================================================
     # ITEMS
+    # ========================================================
 
     table_data = [
         [
@@ -822,11 +1016,11 @@ def generate_pdf_invoice(
                 normal_style,
             ),
             Paragraph(
-                "<b>Unit Price</b>",
+                f"<b>Unit Price ({currency_symbol})</b>",
                 normal_style,
             ),
             Paragraph(
-                "<b>Amount</b>",
+                f"<b>Amount ({currency_symbol})</b>",
                 normal_style,
             ),
         ]
@@ -859,11 +1053,17 @@ def generate_pdf_invoice(
                     normal_style,
                 ),
                 Paragraph(
-                    format_currency(price),
+                    format_currency(
+                        price,
+                        currency_symbol,
+                    ),
                     normal_style,
                 ),
                 Paragraph(
-                    format_currency(amount),
+                    format_currency(
+                        amount,
+                        currency_symbol,
+                    ),
                     normal_style,
                 ),
             ]
@@ -872,10 +1072,10 @@ def generate_pdf_invoice(
     items_table = Table(
         table_data,
         colWidths=[
-            250,
-            55,
-            100,
-            100,
+            230,
+            50,
+            110,
+            115,
         ],
         repeatRows=1,
     )
@@ -942,14 +1142,18 @@ def generate_pdf_invoice(
         Spacer(1, 16)
     )
 
+    # ========================================================
     # TOTALS
+    # ========================================================
 
     subtotal = calculate_subtotal(items)
 
     try:
+
         tax_rate_value = float(tax_rate)
 
     except (ValueError, TypeError):
+
         tax_rate_value = 0.0
 
     tax_amount = (
@@ -961,9 +1165,11 @@ def generate_pdf_invoice(
     )
 
     try:
+
         paid_amount = float(amount_paid)
 
     except (ValueError, TypeError):
+
         paid_amount = 0.0
 
     balance = max(
@@ -974,23 +1180,38 @@ def generate_pdf_invoice(
     summary_data = [
         [
             "Subtotal",
-            format_currency(subtotal),
+            format_currency(
+                subtotal,
+                currency_symbol,
+            ),
         ],
         [
             f"Tax ({tax_rate_value:g}%)",
-            format_currency(tax_amount),
+            format_currency(
+                tax_amount,
+                currency_symbol,
+            ),
         ],
         [
             "Total",
-            format_currency(total_amount),
+            format_currency(
+                total_amount,
+                currency_symbol,
+            ),
         ],
         [
             "Amount Paid",
-            format_currency(paid_amount),
+            format_currency(
+                paid_amount,
+                currency_symbol,
+            ),
         ],
         [
             "Balance Due",
-            format_currency(balance),
+            format_currency(
+                balance,
+                currency_symbol,
+            ),
         ],
     ]
 
@@ -1074,7 +1295,9 @@ def generate_pdf_invoice(
         Spacer(1, 18)
     )
 
+    # ========================================================
     # NOTES
+    # ========================================================
 
     if notes:
 
@@ -1099,7 +1322,9 @@ def generate_pdf_invoice(
             Spacer(1, 12)
         )
 
+    # ========================================================
     # PAYMENT LINK
+    # ========================================================
 
     if payment_url:
 
@@ -1121,7 +1346,9 @@ def generate_pdf_invoice(
             Spacer(1, 12)
         )
 
+    # ========================================================
     # FOOTER
+    # ========================================================
 
     footer_style = ParagraphStyle(
         "FooterInvoice",
@@ -1158,16 +1385,19 @@ def send_invoice_email(
 ):
 
     if not sender_email:
+
         raise ValueError(
             "Gmail sender email is required."
         )
 
     if not app_password:
+
         raise ValueError(
             "Gmail App Password is required."
         )
 
     if not recipient_email:
+
         raise ValueError(
             "Customer email is required."
         )
@@ -1176,6 +1406,7 @@ def send_invoice_email(
 
     message["From"] = sender_email
     message["To"] = recipient_email
+
     message["Subject"] = (
         f"Invoice {invoice_number}"
     )
@@ -1224,11 +1455,11 @@ def send_invoice_email(
 # MAIN APPLICATION
 # ============================================================
 
-# SESSION STATE
-
 if "invoice_items" not in st.session_state:
 
-    st.session_state["invoice_items"] = [
+    st.session_state[
+        "invoice_items"
+    ] = [
         {
             "description": "Consulting Service",
             "quantity": 1.0,
@@ -1244,7 +1475,9 @@ if "invoice_items" not in st.session_state:
 
 if "generated_pdf" not in st.session_state:
 
-    st.session_state["generated_pdf"] = None
+    st.session_state[
+        "generated_pdf"
+    ] = None
 
 
 # ============================================================
@@ -1256,19 +1489,57 @@ st.sidebar.title(
 )
 
 st.sidebar.write(
-    f"👤 Logged in as: **{st.session_state['username']}**"
+    f"👤 Logged in as: "
+    f"**{st.session_state['username']}**"
 )
+
 
 if st.sidebar.button(
     "🚪 Logout",
     use_container_width=True,
 ):
 
-    st.session_state["authenticated"] = False
-    st.session_state["username"] = ""
-    st.session_state["generated_pdf"] = None
+    st.session_state[
+        "authenticated"
+    ] = False
+
+    st.session_state[
+        "username"
+    ] = ""
+
+    st.session_state[
+        "generated_pdf"
+    ] = None
 
     st.rerun()
+
+
+st.sidebar.markdown("---")
+
+
+# ============================================================
+# CURRENCY SELECTOR
+# ============================================================
+
+currency_name = st.sidebar.selectbox(
+    "💱 Currency",
+    list(CURRENCIES.keys()),
+    index=0,
+)
+
+currency_symbol = CURRENCIES[
+    currency_name
+]["symbol"]
+
+currency_code = CURRENCIES[
+    currency_name
+]["code"]
+
+
+st.sidebar.info(
+    f"Selected currency: "
+    f"**{currency_code} ({currency_symbol})**"
+)
 
 
 st.sidebar.markdown("---")
@@ -1460,7 +1731,7 @@ with tab1:
         with col3:
 
             price = st.number_input(
-                "Unit Price",
+                f"Unit Price ({currency_symbol})",
                 min_value=0.0,
                 value=float(
                     item.get(
@@ -1559,7 +1830,10 @@ with tab1:
 
         st.metric(
             "Subtotal",
-            format_currency(subtotal),
+            format_currency(
+                subtotal,
+                currency_symbol,
+            ),
         )
 
 
@@ -1567,7 +1841,10 @@ with tab1:
 
         st.metric(
             "Tax",
-            format_currency(tax_amount),
+            format_currency(
+                tax_amount,
+                currency_symbol,
+            ),
         )
 
 
@@ -1575,7 +1852,10 @@ with tab1:
 
         st.metric(
             "Total",
-            format_currency(total_amount),
+            format_currency(
+                total_amount,
+                currency_symbol,
+            ),
         )
 
 
@@ -1604,7 +1884,7 @@ with tab1:
     elif payment_status == "Partially Paid":
 
         amount_paid = st.number_input(
-            "Amount Paid",
+            f"Amount Paid ({currency_symbol})",
             min_value=0.0,
             max_value=float(total_amount),
             value=0.0,
@@ -1630,7 +1910,10 @@ with tab1:
 
         st.metric(
             "Amount Paid",
-            format_currency(amount_paid),
+            format_currency(
+                amount_paid,
+                currency_symbol,
+            ),
         )
 
 
@@ -1638,7 +1921,10 @@ with tab1:
 
         st.metric(
             "Balance Due",
-            format_currency(balance),
+            format_currency(
+                balance,
+                currency_symbol,
+            ),
         )
 
 
@@ -1666,7 +1952,7 @@ with tab1:
             f"Dear {customer_name or 'Customer'},\n\n"
             f"This is a friendly reminder that invoice "
             f"{invoice_number} has an outstanding balance "
-            f"of {format_currency(balance)}."
+            f"of {format_currency(balance, currency_symbol)}."
         )
 
     else:
@@ -1731,6 +2017,7 @@ with tab1:
                     amount_paid=amount_paid,
                     notes=notes,
                     payment_url=payment_url,
+                    currency_symbol=currency_symbol,
                 )
 
                 st.session_state[
@@ -1818,6 +2105,7 @@ with tab1:
                     amount_paid=amount_paid,
                     balance=balance,
                     status=status,
+                    currency_code=currency_code,
                 )
 
                 st.success(
@@ -1921,16 +2209,64 @@ with tab2:
 
             display_df = history_df.copy()
 
-            for column in [
-                "total_amount",
-                "amount_paid",
-                "balance",
-            ]:
-
-                display_df[column] = (
-                    display_df[column]
-                    .apply(format_currency)
+            # Create readable currency column
+            display_df["Currency"] = (
+                display_df["currency_code"]
+                .fillna("NGN")
+                .apply(
+                    lambda code:
+                    f"{code} "
+                    f"({get_currency_symbol(code)})"
                 )
+            )
+
+            # Format money using the currency
+            # saved with each individual invoice.
+            for index, row in display_df.iterrows():
+
+                row_currency_code = row.get(
+                    "currency_code",
+                    "NGN",
+                )
+
+                row_currency_symbol = (
+                    get_currency_symbol(
+                        row_currency_code
+                    )
+                )
+
+                display_df.at[
+                    index,
+                    "total_amount",
+                ] = format_currency(
+                    row["total_amount"],
+                    row_currency_symbol,
+                )
+
+                display_df.at[
+                    index,
+                    "amount_paid",
+                ] = format_currency(
+                    row["amount_paid"],
+                    row_currency_symbol,
+                )
+
+                display_df.at[
+                    index,
+                    "balance",
+                ] = format_currency(
+                    row["balance"],
+                    row_currency_symbol,
+                )
+
+            # Remove database-only columns
+            display_df = display_df.drop(
+                columns=[
+                    "id",
+                    "currency_code",
+                ],
+                errors="ignore",
+            )
 
             st.dataframe(
                 display_df,
@@ -1968,121 +2304,193 @@ with tab3:
 
         else:
 
-            total_invoiced = (
-                analytics_df["total_amount"].sum()
+            # ------------------------------------------------
+            # ANALYTICS CURRENCY
+            # ------------------------------------------------
+
+            analytics_df[
+                "currency_code"
+            ] = analytics_df[
+                "currency_code"
+            ].fillna("NGN")
+
+            available_codes = (
+                analytics_df[
+                    "currency_code"
+                ]
+                .unique()
+                .tolist()
             )
 
-            total_collected = (
-                analytics_df["amount_paid"].sum()
+            available_currency_options = []
+
+            for code in available_codes:
+
+                symbol = get_currency_symbol(
+                    code
+                )
+
+                available_currency_options.append(
+                    f"{code} ({symbol})"
+                )
+
+            selected_analytics_currency = st.selectbox(
+                "💱 Analytics Currency",
+                available_currency_options,
             )
 
-            total_debt = (
-                analytics_df["balance"].sum()
+            selected_analytics_code = (
+                selected_analytics_currency
+                .split(" ")[0]
             )
 
-            invoice_count = len(
-                analytics_df
+            analytics_symbol = get_currency_symbol(
+                selected_analytics_code
             )
 
+            currency_analytics_df = (
+                analytics_df[
+                    analytics_df[
+                        "currency_code"
+                    ]
+                    == selected_analytics_code
+                ]
+                .copy()
+            )
 
-            col1, col2, col3, col4 = st.columns(4)
+            if currency_analytics_df.empty:
 
+                st.info(
+                    "No invoices are available "
+                    "for this currency."
+                )
 
-            with col1:
+            else:
 
-                st.metric(
-                    "Total Invoiced",
-                    format_currency(
-                        total_invoiced
+                total_invoiced = (
+                    currency_analytics_df[
+                        "total_amount"
+                    ].sum()
+                )
+
+                total_collected = (
+                    currency_analytics_df[
+                        "amount_paid"
+                    ].sum()
+                )
+
+                total_debt = (
+                    currency_analytics_df[
+                        "balance"
+                    ].sum()
+                )
+
+                invoice_count = len(
+                    currency_analytics_df
+                )
+
+                st.info(
+                    f"Analytics are showing "
+                    f"{selected_analytics_code} "
+                    f"({analytics_symbol}) invoices only."
+                )
+
+                col1, col2, col3, col4 = st.columns(4)
+
+                with col1:
+
+                    st.metric(
+                        "Total Invoiced",
+                        format_currency(
+                            total_invoiced,
+                            analytics_symbol,
+                        ),
+                    )
+
+                with col2:
+
+                    st.metric(
+                        "Total Collected",
+                        format_currency(
+                            total_collected,
+                            analytics_symbol,
+                        ),
+                    )
+
+                with col3:
+
+                    st.metric(
+                        "Outstanding Debt",
+                        format_currency(
+                            total_debt,
+                            analytics_symbol,
+                        ),
+                    )
+
+                with col4:
+
+                    st.metric(
+                        "Number of Invoices",
+                        invoice_count,
+                    )
+
+                st.markdown("---")
+
+                chart_data = pd.DataFrame(
+                    {
+                        "Category": [
+                            "Collected",
+                            "Outstanding",
+                        ],
+                        "Amount": [
+                            total_collected,
+                            total_debt,
+                        ],
+                    }
+                )
+
+                fig_pie = px.pie(
+                    chart_data,
+                    names="Category",
+                    values="Amount",
+                    title=(
+                        f"Collected vs Outstanding "
+                        f"({selected_analytics_code})"
                     ),
                 )
 
+                st.plotly_chart(
+                    fig_pie,
+                    use_container_width=True,
+                )
 
-            with col2:
+                status_data = (
+                    currency_analytics_df[
+                        "status"
+                    ]
+                    .value_counts()
+                    .reset_index()
+                )
 
-                st.metric(
-                    "Total Collected",
-                    format_currency(
-                        total_collected
+                status_data.columns = [
+                    "Status",
+                    "Count",
+                ]
+
+                fig_bar = px.bar(
+                    status_data,
+                    x="Status",
+                    y="Count",
+                    title=(
+                        f"Invoice Status "
+                        f"({selected_analytics_code})"
                     ),
                 )
 
-
-            with col3:
-
-                st.metric(
-                    "Outstanding Debt",
-                    format_currency(
-                        total_debt
-                    ),
+                st.plotly_chart(
+                    fig_bar,
+                    use_container_width=True,
                 )
-
-
-            with col4:
-
-                st.metric(
-                    "Number of Invoices",
-                    invoice_count,
-                )
-
-
-            st.markdown("---")
-
-
-            chart_data = pd.DataFrame(
-                {
-                    "Category": [
-                        "Collected",
-                        "Outstanding",
-                    ],
-                    "Amount": [
-                        total_collected,
-                        total_debt,
-                    ],
-                }
-            )
-
-
-            fig_pie = px.pie(
-                chart_data,
-                names="Category",
-                values="Amount",
-                title="Collected vs Outstanding",
-            )
-
-
-            st.plotly_chart(
-                fig_pie,
-                use_container_width=True,
-            )
-
-
-            status_data = (
-                analytics_df["status"]
-                .value_counts()
-                .reset_index()
-            )
-
-
-            status_data.columns = [
-                "Status",
-                "Count",
-            ]
-
-
-            fig_bar = px.bar(
-                status_data,
-                x="Status",
-                y="Count",
-                title="Invoice Status",
-            )
-
-
-            st.plotly_chart(
-                fig_bar,
-                use_container_width=True,
-            )
-
 
     except Exception as error:
 
@@ -2115,10 +2523,15 @@ try:
 
     else:
 
+        followup_df[
+            "currency_code"
+        ] = followup_df[
+            "currency_code"
+        ].fillna("NGN")
+
         debt_df = followup_df[
             followup_df["balance"] > 0
         ].copy()
-
 
         if debt_df.empty:
 
@@ -2133,14 +2546,29 @@ try:
                 "have outstanding balances."
             )
 
-
             for _, row in debt_df.iterrows():
+
+                row_currency_code = row.get(
+                    "currency_code",
+                    "NGN",
+                )
+
+                row_currency_symbol = (
+                    get_currency_symbol(
+                        row_currency_code
+                    )
+                )
+
+                balance_display = format_currency(
+                    row["balance"],
+                    row_currency_symbol,
+                )
 
                 st.write(
                     f"**{row['customer_name']}** — "
                     f"Invoice {row['invoice_number']} — "
-                    f"Balance: "
-                    f"{format_currency(row['balance'])}"
+                    f"Balance: {balance_display} "
+                    f"({row_currency_code})"
                 )
 
 
