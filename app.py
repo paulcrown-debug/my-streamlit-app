@@ -186,8 +186,7 @@ def init_db():
         """
     )
 
-    # Check whether currency_code already exists.
-    # This allows existing databases to continue working.
+    # Check existing invoice columns
     cursor.execute(
         "PRAGMA table_info(invoices)"
     )
@@ -197,14 +196,24 @@ def init_db():
         for row in cursor.fetchall()
     ]
 
+    # Upgrade old databases that do not have currency_code
     if "currency_code" not in columns:
-
         cursor.execute(
             """
             ALTER TABLE invoices
             ADD COLUMN currency_code TEXT DEFAULT 'NGN'
             """
         )
+
+    # Make sure old invoices have NGN instead of NULL
+    cursor.execute(
+        """
+        UPDATE invoices
+        SET currency_code = 'NGN'
+        WHERE currency_code IS NULL
+           OR currency_code = ''
+        """
+    )
 
     conn.commit()
     conn.close()
@@ -220,7 +229,6 @@ init_db()
 def hash_password(password):
     """
     Create a secure password hash using PBKDF2-HMAC-SHA256.
-    A unique random salt is generated for every password.
     """
 
     salt = secrets.token_bytes(16)
@@ -245,7 +253,6 @@ def verify_password(password, stored_password):
     """
 
     try:
-
         salt_hex, hash_hex = stored_password.split(":")
 
         salt = bytes.fromhex(salt_hex)
@@ -264,7 +271,6 @@ def verify_password(password, stored_password):
         )
 
     except (ValueError, TypeError):
-
         return False
 
 
@@ -282,7 +288,6 @@ def create_user(username, password):
     cursor = conn.cursor()
 
     try:
-
         cursor.execute(
             """
             INSERT INTO users (
@@ -316,7 +321,6 @@ def create_user(username, password):
         )
 
     finally:
-
         conn.close()
 
 
@@ -341,7 +345,6 @@ def authenticate_user(username, password):
     conn.close()
 
     if not user:
-
         return False
 
     stored_username, stored_password_hash = user
@@ -640,11 +643,24 @@ def get_invoice_history():
     conn = get_db_connection()
 
     df = pd.read_sql_query(
-        "SELECT * FROM invoices ORDER BY id DESC",
+        """
+        SELECT *
+        FROM invoices
+        ORDER BY id DESC
+        """,
         conn,
     )
 
     conn.close()
+
+    # Make sure currency_code always has a usable value
+    if "currency_code" in df.columns:
+
+        df["currency_code"] = (
+            df["currency_code"]
+            .fillna("NGN")
+            .replace("", "NGN")
+        )
 
     return df
 
@@ -652,7 +668,6 @@ def get_invoice_history():
 def safe_text(value):
 
     if value is None:
-
         return ""
 
     return str(value)
@@ -669,7 +684,6 @@ def clean_items(items):
         ).strip()
 
         if not description:
-
             continue
 
         try:
@@ -1387,19 +1401,19 @@ def send_invoice_email(
     if not sender_email:
 
         raise ValueError(
-            "Gmail sender email is required."
+            "Your Gmail address is required in Gmail Settings."
         )
 
     if not app_password:
 
         raise ValueError(
-            "Gmail App Password is required."
+            "Your Gmail App Password is required in Gmail Settings."
         )
 
     if not recipient_email:
 
         raise ValueError(
-            "Customer email is required."
+            "The customer's email address is required."
         )
 
     message = MIMEMultipart()
@@ -1452,7 +1466,7 @@ def send_invoice_email(
 
 
 # ============================================================
-# MAIN APPLICATION
+# MAIN APPLICATION SESSION STATE
 # ============================================================
 
 if "invoice_items" not in st.session_state:
@@ -1545,6 +1559,10 @@ st.sidebar.info(
 st.sidebar.markdown("---")
 
 
+# ============================================================
+# BUSINESS INFORMATION
+# ============================================================
+
 business_name = st.sidebar.text_input(
     "Business Name",
     value="Crown Construction Company Nig LTD",
@@ -1581,6 +1599,11 @@ st.sidebar.file_uploader(
 
 st.sidebar.markdown("---")
 
+
+# ============================================================
+# PAYMENT SETTINGS
+# ============================================================
+
 st.sidebar.subheader(
     "💳 Payment Settings"
 )
@@ -1594,21 +1617,36 @@ payment_url = st.sidebar.text_input(
 
 st.sidebar.markdown("---")
 
+
+# ============================================================
+# GMAIL SETTINGS
+# ============================================================
+
 st.sidebar.subheader(
     "📧 Gmail Settings"
 )
 
+st.sidebar.caption(
+    "These are YOUR Gmail details used to send invoices."
+)
+
 
 gmail_sender = st.sidebar.text_input(
-    "Gmail Address",
+    "Your Gmail Address (Sender)",
     value="",
 )
 
 
 gmail_app_password = st.sidebar.text_input(
-    "Gmail App Password",
+    "Your Gmail App Password",
     value="",
     type="password",
+)
+
+
+st.sidebar.caption(
+    "The customer's email address is entered on the invoice, "
+    "not here."
 )
 
 
@@ -1941,6 +1979,11 @@ with tab1:
 
     st.markdown("---")
 
+
+    # ========================================================
+    # CUSTOMER REMINDER
+    # ========================================================
+
     st.subheader(
         "🔔 Customer Reminder"
     )
@@ -2024,6 +2067,10 @@ with tab1:
                     "generated_pdf"
                 ] = pdf_bytes
 
+                st.session_state[
+                    "generated_pdf_currency"
+                ] = currency_code
+
                 st.success(
                     "PDF invoice generated successfully."
                 )
@@ -2044,15 +2091,31 @@ with tab1:
         "generated_pdf"
     ]:
 
-        st.download_button(
-            label="⬇️ Download PDF Invoice",
-            data=st.session_state[
-                "generated_pdf"
-            ],
-            file_name=f"{invoice_number}.pdf",
-            mime="application/pdf",
-            use_container_width=True,
+        generated_pdf_currency = (
+            st.session_state.get(
+                "generated_pdf_currency",
+                currency_code,
+            )
         )
+
+        if generated_pdf_currency != currency_code:
+
+            st.warning(
+                "The generated PDF uses a different currency. "
+                "Please generate the PDF again for the currently selected currency."
+            )
+
+        else:
+
+            st.download_button(
+                label="⬇️ Download PDF Invoice",
+                data=st.session_state[
+                    "generated_pdf"
+                ],
+                file_name=f"{invoice_number}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
 
 
     st.markdown("---")
@@ -2109,7 +2172,7 @@ with tab1:
                 )
 
                 st.success(
-                    "Invoice saved successfully."
+                    f"Invoice saved successfully in {currency_code}."
                 )
 
             except Exception as error:
@@ -2143,19 +2206,35 @@ with tab1:
         elif not customer_email.strip():
 
             st.error(
-                "Please enter the customer's email address."
+                "Please enter the customer's email address "
+                "in the Customer Information section."
             )
 
         elif not gmail_sender.strip():
 
             st.error(
-                "Please enter your Gmail address in the sidebar."
+                "Please enter YOUR Gmail address in the sidebar "
+                "under Gmail Settings."
             )
 
         elif not gmail_app_password.strip():
 
             st.error(
-                "Please enter your Gmail App Password in the sidebar."
+                "Please enter YOUR Gmail App Password in the sidebar "
+                "under Gmail Settings."
+            )
+
+        elif (
+            st.session_state.get(
+                "generated_pdf_currency",
+                currency_code,
+            )
+            != currency_code
+        ):
+
+            st.error(
+                "The PDF was generated using a different currency. "
+                "Please generate the PDF again before sending it."
             )
 
         else:
@@ -2174,7 +2253,7 @@ with tab1:
                 )
 
                 st.success(
-                    "Invoice email sent successfully."
+                    f"Invoice successfully sent to {customer_email}."
                 )
 
             except Exception as error:
@@ -2207,65 +2286,96 @@ with tab2:
 
         else:
 
+            # ------------------------------------------------
+            # IMPORTANT FIX:
+            # Do NOT replace numeric float columns with
+            # currency-formatted strings.
+            #
+            # Instead, create new display columns.
+            # ------------------------------------------------
+
             display_df = history_df.copy()
 
-            # Create readable currency column
-            display_df["Currency"] = (
+            display_df["currency_code"] = (
                 display_df["currency_code"]
                 .fillna("NGN")
-                .apply(
-                    lambda code:
-                    f"{code} "
-                    f"({get_currency_symbol(code)})"
-                )
+                .replace("", "NGN")
             )
 
-            # Format money using the currency
-            # saved with each individual invoice.
-            for index, row in display_df.iterrows():
+            display_df["Currency"] = display_df[
+                "currency_code"
+            ].apply(
+                lambda code:
+                f"{code} ({get_currency_symbol(code)})"
+            )
 
-                row_currency_code = row.get(
-                    "currency_code",
-                    "NGN",
-                )
-
-                row_currency_symbol = (
-                    get_currency_symbol(
-                        row_currency_code
-                    )
-                )
-
-                display_df.at[
-                    index,
-                    "total_amount",
-                ] = format_currency(
+            # Create separate text columns for display.
+            display_df["Total"] = display_df.apply(
+                lambda row:
+                format_currency(
                     row["total_amount"],
-                    row_currency_symbol,
-                )
+                    get_currency_symbol(
+                        row["currency_code"]
+                    ),
+                ),
+                axis=1,
+            )
 
-                display_df.at[
-                    index,
-                    "amount_paid",
-                ] = format_currency(
+            display_df["Amount Paid"] = display_df.apply(
+                lambda row:
+                format_currency(
                     row["amount_paid"],
-                    row_currency_symbol,
-                )
+                    get_currency_symbol(
+                        row["currency_code"]
+                    ),
+                ),
+                axis=1,
+            )
 
-                display_df.at[
-                    index,
-                    "balance",
-                ] = format_currency(
+            display_df["Balance"] = display_df.apply(
+                lambda row:
+                format_currency(
                     row["balance"],
-                    row_currency_symbol,
-                )
+                    get_currency_symbol(
+                        row["currency_code"]
+                    ),
+                ),
+                axis=1,
+            )
 
-            # Remove database-only columns
-            display_df = display_df.drop(
-                columns=[
-                    "id",
-                    "currency_code",
-                ],
-                errors="ignore",
+            # Keep useful columns and remove raw numeric
+            # money columns from the displayed table.
+            history_columns = [
+                "invoice_number",
+                "customer_name",
+                "customer_email",
+                "invoice_date",
+                "Currency",
+                "Total",
+                "Amount Paid",
+                "Balance",
+                "status",
+            ]
+
+            available_columns = [
+                column
+                for column in history_columns
+                if column in display_df.columns
+            ]
+
+            display_df = display_df[
+                available_columns
+            ]
+
+            # Friendly column names
+            display_df = display_df.rename(
+                columns={
+                    "invoice_number": "Invoice Number",
+                    "customer_name": "Customer Name",
+                    "customer_email": "Customer Email",
+                    "invoice_date": "Invoice Date",
+                    "status": "Status",
+                }
             )
 
             st.dataframe(
@@ -2303,10 +2413,6 @@ with tab3:
             )
 
         else:
-
-            # ------------------------------------------------
-            # ANALYTICS CURRENCY
-            # ------------------------------------------------
 
             analytics_df[
                 "currency_code"
@@ -2368,21 +2474,36 @@ with tab3:
             else:
 
                 total_invoiced = (
-                    currency_analytics_df[
-                        "total_amount"
-                    ].sum()
+                    pd.to_numeric(
+                        currency_analytics_df[
+                            "total_amount"
+                        ],
+                        errors="coerce",
+                    )
+                    .fillna(0)
+                    .sum()
                 )
 
                 total_collected = (
-                    currency_analytics_df[
-                        "amount_paid"
-                    ].sum()
+                    pd.to_numeric(
+                        currency_analytics_df[
+                            "amount_paid"
+                        ],
+                        errors="coerce",
+                    )
+                    .fillna(0)
+                    .sum()
                 )
 
                 total_debt = (
-                    currency_analytics_df[
-                        "balance"
-                    ].sum()
+                    pd.to_numeric(
+                        currency_analytics_df[
+                            "balance"
+                        ],
+                        errors="coerce",
+                    )
+                    .fillna(0)
+                    .sum()
                 )
 
                 invoice_count = len(
@@ -2528,6 +2649,14 @@ try:
         ] = followup_df[
             "currency_code"
         ].fillna("NGN")
+
+        # Make sure balance is numeric
+        followup_df[
+            "balance"
+        ] = pd.to_numeric(
+            followup_df["balance"],
+            errors="coerce",
+        ).fillna(0.0)
 
         debt_df = followup_df[
             followup_df["balance"] > 0
