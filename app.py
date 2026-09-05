@@ -42,86 +42,26 @@ st.set_page_config(
 # ============================================================
 
 CURRENCIES = {
-    "🇳🇬 Nigerian Naira (NGN)": {
-        "code": "NGN",
-        "symbol": "₦",
-    },
-    "🇺🇸 US Dollar (USD)": {
-        "code": "USD",
-        "symbol": "$",
-    },
-    "🇬🇧 British Pound (GBP)": {
-        "code": "GBP",
-        "symbol": "£",
-    },
-    "🇪🇺 Euro (EUR)": {
-        "code": "EUR",
-        "symbol": "€",
-    },
-    "🇨🇦 Canadian Dollar (CAD)": {
-        "code": "CAD",
-        "symbol": "C$",
-    },
-    "🇦🇺 Australian Dollar (AUD)": {
-        "code": "AUD",
-        "symbol": "A$",
-    },
-    "🇿🇦 South African Rand (ZAR)": {
-        "code": "ZAR",
-        "symbol": "R",
-    },
-    "🇬🇭 Ghanaian Cedi (GHS)": {
-        "code": "GHS",
-        "symbol": "GH₵",
-    },
-    "🇰🇪 Kenyan Shilling (KES)": {
-        "code": "KES",
-        "symbol": "KSh",
-    },
-    "🇮🇳 Indian Rupee (INR)": {
-        "code": "INR",
-        "symbol": "₹",
-    },
-    "🇨🇳 Chinese Yuan (CNY)": {
-        "code": "CNY",
-        "symbol": "¥",
-    },
-    "🇯🇵 Japanese Yen (JPY)": {
-        "code": "JPY",
-        "symbol": "¥",
-    },
-    "🇦🇪 UAE Dirham (AED)": {
-        "code": "AED",
-        "symbol": "د.إ",
-    },
-    "🇸🇦 Saudi Riyal (SAR)": {
-        "code": "SAR",
-        "symbol": "﷼",
-    },
-    "🇳🇿 New Zealand Dollar (NZD)": {
-        "code": "NZD",
-        "symbol": "NZ$",
-    },
-    "🇸🇬 Singapore Dollar (SGD)": {
-        "code": "SGD",
-        "symbol": "S$",
-    },
-    "🇨🇭 Swiss Franc (CHF)": {
-        "code": "CHF",
-        "symbol": "CHF",
-    },
-    "🇳🇴 Norwegian Krone (NOK)": {
-        "code": "NOK",
-        "symbol": "kr",
-    },
-    "🇸🇪 Swedish Krona (SEK)": {
-        "code": "SEK",
-        "symbol": "kr",
-    },
-    "🇧🇷 Brazilian Real (BRL)": {
-        "code": "BRL",
-        "symbol": "R$",
-    },
+    "🇳🇬 Nigerian Naira (NGN)": {"code": "NGN", "symbol": "₦"},
+    "🇺🇸 US Dollar (USD)": {"code": "USD", "symbol": "$"},
+    "🇬🇧 British Pound (GBP)": {"code": "GBP", "symbol": "£"},
+    "🇪🇺 Euro (EUR)": {"code": "EUR", "symbol": "€"},
+    "🇨🇦 Canadian Dollar (CAD)": {"code": "CAD", "symbol": "C$"},
+    "🇦🇺 Australian Dollar (AUD)": {"code": "AUD", "symbol": "A$"},
+    "🇿🇦 South African Rand (ZAR)": {"code": "ZAR", "symbol": "R"},
+    "🇬🇭 Ghanaian Cedi (GHS)": {"code": "GHS", "symbol": "GH₵"},
+    "🇰🇪 Kenyan Shilling (KES)": {"code": "KES", "symbol": "KSh"},
+    "🇮🇳 Indian Rupee (INR)": {"code": "INR", "symbol": "₹"},
+    "🇨🇳 Chinese Yuan (CNY)": {"code": "CNY", "symbol": "¥"},
+    "🇯🇵 Japanese Yen (JPY)": {"code": "JPY", "symbol": "¥"},
+    "🇦🇪 UAE Dirham (AED)": {"code": "AED", "symbol": "د.إ"},
+    "🇸🇦 Saudi Riyal (SAR)": {"code": "SAR", "symbol": "﷼"},
+    "🇳🇿 New Zealand Dollar (NZD)": {"code": "NZD", "symbol": "NZ$"},
+    "🇸🇬 Singapore Dollar (SGD)": {"code": "SGD", "symbol": "S$"},
+    "🇨🇭 Swiss Franc (CHF)": {"code": "CHF", "symbol": "CHF"},
+    "🇳🇴 Norwegian Krone (NOK)": {"code": "NOK", "symbol": "kr"},
+    "🇸🇪 Swedish Krona (SEK)": {"code": "SEK", "symbol": "kr"},
+    "🇧🇷 Brazilian Real (BRL)": {"code": "BRL", "symbol": "R$"},
 }
 
 
@@ -156,7 +96,6 @@ def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Users table
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS users (
@@ -168,7 +107,6 @@ def init_db():
         """
     )
 
-    # Invoices table
     cursor.execute(
         """
         CREATE TABLE IF NOT EXISTS invoices (
@@ -186,7 +124,6 @@ def init_db():
         """
     )
 
-    # Check existing invoice columns
     cursor.execute(
         "PRAGMA table_info(invoices)"
     )
@@ -196,7 +133,6 @@ def init_db():
         for row in cursor.fetchall()
     ]
 
-    # Upgrade old databases that do not have currency_code
     if "currency_code" not in columns:
         cursor.execute(
             """
@@ -205,7 +141,6 @@ def init_db():
             """
         )
 
-    # Make sure old invoices have NGN instead of NULL
     cursor.execute(
         """
         UPDATE invoices
@@ -227,10 +162,6 @@ init_db()
 # ============================================================
 
 def hash_password(password):
-    """
-    Create a secure password hash using PBKDF2-HMAC-SHA256.
-    """
-
     salt = secrets.token_bytes(16)
 
     password_hash = hashlib.pbkdf2_hmac(
@@ -248,10 +179,6 @@ def hash_password(password):
 
 
 def verify_password(password, stored_password):
-    """
-    Verify a password against the stored salted hash.
-    """
-
     try:
         salt_hex, hash_hex = stored_password.split(":")
 
@@ -288,6 +215,7 @@ def create_user(username, password):
     cursor = conn.cursor()
 
     try:
+
         cursor.execute(
             """
             INSERT INTO users (
@@ -347,11 +275,9 @@ def authenticate_user(username, password):
     if not user:
         return False
 
-    stored_username, stored_password_hash = user
-
     return verify_password(
         password,
-        stored_password_hash,
+        user[1],
     )
 
 
@@ -576,10 +502,6 @@ if "username" not in st.session_state:
     ] = ""
 
 
-# ============================================================
-# SHOW LOGIN BEFORE MAIN APP
-# ============================================================
-
 if not st.session_state["authenticated"]:
 
     show_authentication_page()
@@ -653,7 +575,6 @@ def get_invoice_history():
 
     conn.close()
 
-    # Make sure currency_code always has a usable value
     if "currency_code" in df.columns:
 
         df["currency_code"] = (
@@ -1398,6 +1319,19 @@ def send_invoice_email(
     customer_name,
 ):
 
+    # Clean the values before using them.
+    sender_email = safe_text(
+        sender_email
+    ).strip()
+
+    app_password = safe_text(
+        app_password
+    ).strip()
+
+    recipient_email = safe_text(
+        recipient_email
+    ).strip()
+
     if not sender_email:
 
         raise ValueError(
@@ -1416,9 +1350,22 @@ def send_invoice_email(
             "The customer's email address is required."
         )
 
+    if "@" not in sender_email:
+
+        raise ValueError(
+            "Please enter a valid Gmail address."
+        )
+
+    if "@" not in recipient_email:
+
+        raise ValueError(
+            "Please enter a valid customer email address."
+        )
+
     message = MIMEMultipart()
 
     message["From"] = sender_email
+
     message["To"] = recipient_email
 
     message["Subject"] = (
@@ -1452,17 +1399,37 @@ def send_invoice_email(
 
     message.attach(attachment)
 
-    with smtplib.SMTP_SSL(
-        "smtp.gmail.com",
-        465,
-    ) as server:
+    try:
 
-        server.login(
-            sender_email,
-            app_password,
-        )
+        with smtplib.SMTP_SSL(
+            "smtp.gmail.com",
+            465,
+            timeout=30,
+        ) as server:
 
-        server.send_message(message)
+            server.login(
+                sender_email,
+                app_password,
+            )
+
+            server.send_message(
+                message
+            )
+
+    except smtplib.SMTPAuthenticationError as error:
+
+        raise ValueError(
+            "Gmail authentication failed. "
+            "Make sure you are using your Gmail address "
+            "and a Google App Password, not your normal "
+            "Gmail password."
+        ) from error
+
+    except smtplib.SMTPException as error:
+
+        raise ValueError(
+            f"Gmail could not send the invoice: {error}"
+        ) from error
 
 
 # ============================================================
@@ -1492,6 +1459,31 @@ if "generated_pdf" not in st.session_state:
     st.session_state[
         "generated_pdf"
     ] = None
+
+
+if "generated_pdf_currency" not in st.session_state:
+
+    st.session_state[
+        "generated_pdf_currency"
+    ] = "NGN"
+
+
+# ============================================================
+# IMPORTANT GMAIL SESSION SETTINGS
+# ============================================================
+
+if "gmail_sender" not in st.session_state:
+
+    st.session_state[
+        "gmail_sender"
+    ] = ""
+
+
+if "gmail_app_password" not in st.session_state:
+
+    st.session_state[
+        "gmail_app_password"
+    ] = ""
 
 
 # ============================================================
@@ -1524,6 +1516,14 @@ if st.sidebar.button(
     st.session_state[
         "generated_pdf"
     ] = None
+
+    st.session_state[
+        "gmail_sender"
+    ] = ""
+
+    st.session_state[
+        "gmail_app_password"
+    ] = ""
 
     st.rerun()
 
@@ -1626,27 +1626,35 @@ st.sidebar.subheader(
     "📧 Gmail Settings"
 )
 
+
 st.sidebar.caption(
-    "These are YOUR Gmail details used to send invoices."
+    "Enter YOUR Gmail account here. "
+    "This account will send the invoice to your customer."
 )
 
 
 gmail_sender = st.sidebar.text_input(
     "Your Gmail Address (Sender)",
-    value="",
+    key="gmail_sender",
+    placeholder="yourname@gmail.com",
 )
 
 
 gmail_app_password = st.sidebar.text_input(
     "Your Gmail App Password",
-    value="",
+    key="gmail_app_password",
     type="password",
+    placeholder="16-character Google App Password",
 )
 
 
 st.sidebar.caption(
-    "The customer's email address is entered on the invoice, "
-    "not here."
+    "Use a Google App Password, not your normal Gmail password."
+)
+
+
+st.sidebar.info(
+    "Customer email → enter it in Customer Information below."
 )
 
 
@@ -1724,13 +1732,17 @@ with tab1:
             value=date.today(),
         )
 
+
     st.markdown("---")
+
 
     st.subheader(
         "Invoice Items"
     )
 
+
     updated_items = []
+
 
     for index, item in enumerate(
         st.session_state["invoice_items"]
@@ -1798,6 +1810,7 @@ with tab1:
                 }
             )
 
+
     st.session_state[
         "invoice_items"
     ] = updated_items
@@ -1834,6 +1847,7 @@ with tab1:
 
     st.markdown("---")
 
+
     st.subheader(
         "Invoice Summary"
     )
@@ -1852,9 +1866,11 @@ with tab1:
         items
     )
 
+
     tax_amount = (
         subtotal * tax_rate / 100
     )
+
 
     total_amount = (
         subtotal + tax_amount
@@ -1898,6 +1914,7 @@ with tab1:
 
 
     st.markdown("---")
+
 
     st.subheader(
         "Payment Status"
@@ -2195,6 +2212,21 @@ with tab1:
         use_container_width=True,
     ):
 
+        # IMPORTANT:
+        # Get the Gmail settings directly from session state.
+        sender_email = st.session_state.get(
+            "gmail_sender",
+            "",
+        ).strip()
+
+        sender_password = st.session_state.get(
+            "gmail_app_password",
+            "",
+        ).strip()
+
+        recipient_email = customer_email.strip()
+
+
         if not st.session_state[
             "generated_pdf"
         ]:
@@ -2203,21 +2235,21 @@ with tab1:
                 "Generate the PDF invoice first."
             )
 
-        elif not customer_email.strip():
+        elif not recipient_email:
 
             st.error(
                 "Please enter the customer's email address "
                 "in the Customer Information section."
             )
 
-        elif not gmail_sender.strip():
+        elif not sender_email:
 
             st.error(
                 "Please enter YOUR Gmail address in the sidebar "
                 "under Gmail Settings."
             )
 
-        elif not gmail_app_password.strip():
+        elif not sender_password:
 
             st.error(
                 "Please enter YOUR Gmail App Password in the sidebar "
@@ -2242,9 +2274,9 @@ with tab1:
             try:
 
                 send_invoice_email(
-                    sender_email=gmail_sender,
-                    app_password=gmail_app_password,
-                    recipient_email=customer_email,
+                    sender_email=sender_email,
+                    app_password=sender_password,
+                    recipient_email=recipient_email,
                     invoice_number=invoice_number,
                     pdf_bytes=st.session_state[
                         "generated_pdf"
@@ -2253,7 +2285,7 @@ with tab1:
                 )
 
                 st.success(
-                    f"Invoice successfully sent to {customer_email}."
+                    f"Invoice successfully sent to {recipient_email}."
                 )
 
             except Exception as error:
@@ -2286,14 +2318,6 @@ with tab2:
 
         else:
 
-            # ------------------------------------------------
-            # IMPORTANT FIX:
-            # Do NOT replace numeric float columns with
-            # currency-formatted strings.
-            #
-            # Instead, create new display columns.
-            # ------------------------------------------------
-
             display_df = history_df.copy()
 
             display_df["currency_code"] = (
@@ -2309,7 +2333,6 @@ with tab2:
                 f"{code} ({get_currency_symbol(code)})"
             )
 
-            # Create separate text columns for display.
             display_df["Total"] = display_df.apply(
                 lambda row:
                 format_currency(
@@ -2343,8 +2366,6 @@ with tab2:
                 axis=1,
             )
 
-            # Keep useful columns and remove raw numeric
-            # money columns from the displayed table.
             history_columns = [
                 "invoice_number",
                 "customer_name",
@@ -2367,7 +2388,6 @@ with tab2:
                 available_columns
             ]
 
-            # Friendly column names
             display_df = display_df.rename(
                 columns={
                     "invoice_number": "Invoice Number",
@@ -2650,7 +2670,6 @@ try:
             "currency_code"
         ].fillna("NGN")
 
-        # Make sure balance is numeric
         followup_df[
             "balance"
         ] = pd.to_numeric(
